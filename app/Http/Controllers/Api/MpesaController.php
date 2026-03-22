@@ -29,14 +29,10 @@ class MpesaController extends Controller
         }
 
         $amount    = (int) $request->amount;
-        // $paybill   = Setting::get('mpesa_paybill');
-        // $env       = Setting::get('mpesa_env', 'sandbox');
-        // $consKey   = Setting::get('mpesa_consumer_key');
-        // $consSec   = Setting::get('mpesa_consumer_secret');
-        $paybill   = 174379;
+        $paybill   = Setting::get('mpesa_paybill');
         $env       = Setting::get('mpesa_env', 'sandbox');
-        $consKey   = 'Ml4pzl7DF9CFFvGrqmTj2me7gGGambvaEoYJdu5W2GWgTZXQ';
-        $consSec   = 'cdWwW5aP4a2So9Un8pAO7dkmRxdVhTe4TGoIeCkmH4xBPXOijbas0OqamWD8OfQS';
+        $consKey   = Setting::get('mpesa_consumer_key');
+        $consSec   = Setting::get('mpesa_consumer_secret');
 
         if (!$paybill || !$consKey || !$consSec) {
             return response()->json([

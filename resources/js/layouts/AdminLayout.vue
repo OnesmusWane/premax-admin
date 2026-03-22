@@ -6,8 +6,8 @@
       :class="['hidden md:flex flex-col bg-gray-900 text-white shrink-0 transition-all duration-300',
         sidebarCollapsed ? 'md:w-16' : 'md:w-[200px]']">
       <div class="flex items-center gap-3 px-4 py-4 border-b border-white/10 h-16 overflow-hidden">
-        <img src="./assets/images/logos/logo.png" alt="Premax"
-          class="w-8 h-8 rounded-lg object-contain bg-white p-0.5 shrink-0">
+        <!-- <img src="./assets/images/logos/logo.png" alt="Premax"
+          class="w-8 h-8 rounded-lg object-contain bg-white p-0.5 shrink-0"> -->
         <span v-if="!sidebarCollapsed" class="font-extrabold text-sm tracking-tight whitespace-nowrap">
           Premax <span class="text-red-500">Autocare</span>
         </span>
