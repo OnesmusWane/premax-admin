@@ -88,7 +88,6 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/pos/checkout',      [InvoiceController::class, 'checkout']);
     Route::patch('/invoices/{invoice}/status',       [InvoiceController::class, 'updateStatus']);
     Route::patch('/invoices/{invoice}/link-booking', [InvoiceController::class, 'linkBooking']);
-    Route::patch('/invoices/{invoice}/mpesa-reference',  [InvoiceController::class, 'updateMpesaReference']);
 
     // Reports
     Route::get('/reports', [ReportsController::class, 'index']);
