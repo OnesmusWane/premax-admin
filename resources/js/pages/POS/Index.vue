@@ -778,13 +778,26 @@ async function sendStkPush() {
 
 async function pollStkStatus() {
   try {
-    const res = await get('/admin/mpesa/status', { checkout_request_id: checkoutRequestId.value })
+    const res = await post('/admin/mpesa/status', { checkout_request_id: checkoutRequestId.value })
     stkStatus.value = res.status
+
     if (res.status === 'success') {
       stopPolling()
+      mpesaCode.value     = res.mpesa_receipt_number ?? ''
       stkStatusDesc.value = res.mpesa_receipt_number ? `Receipt: ${res.mpesa_receipt_number}` : 'Payment confirmed!'
-      mpesaCode.value = res.mpesa_receipt_number ?? ''
       toast.success('M-Pesa payment confirmed! ✅')
+
+      // If invoice already created (e.g. "Mark as Paid" was clicked), patch the reference in
+      if (lastInvoice.value?.id && res.mpesa_receipt_number) {
+        try {
+          await put(`/admin/invoices/${lastInvoice.value.id}/mpesa-reference`, {
+            mpesa_reference:     res.mpesa_receipt_number,
+            checkout_request_id: checkoutRequestId.value,
+          })
+          lastInvoice.value.mpesa_reference = res.mpesa_receipt_number
+        } catch {}
+      }
+
     } else if (res.status === 'failed') {
       stopPolling()
       stkStatusDesc.value = res.result_desc ?? 'Payment failed or cancelled.'
@@ -805,16 +818,17 @@ async function confirmCheckout(skipCode = false) {
   saving.value = true
   try {
     const inv = await post('/admin/pos/checkout', {
-      customer_id:     activeBooking.value?.customer?.id ?? undefined,
-      booking_id:      activeBooking.value?.id           ?? undefined,
-      checklist_id:    activeChecklistId.value           ?? undefined,
-      vehicle_reg:     activeBooking.value?.vehicle?.registration ?? undefined,
-      items:           cart.value.map(i => ({ description:i.name, quantity:i.quantity, unit_price:i.unit_price })),
-      payment_method:  pendingMethod.value,
-      mpesa_reference: pendingMethod.value === 'mpesa' && !skipCode ? mpesaCode.value : undefined,
-      card_reference:  pendingMethod.value === 'card' ? cardRef.value : undefined,
-      discount:        discount.value > 0 ? discount.value : undefined,
-      notes:           paymentNotes.value || undefined,
+      customer_id:          activeBooking.value?.customer?.id ?? undefined,
+      booking_id:           activeBooking.value?.id           ?? undefined,
+      checklist_id:         activeChecklistId.value           ?? undefined,
+      vehicle_reg:          activeBooking.value?.vehicle?.registration ?? undefined,
+      items:                cart.value.map(i => ({ description:i.name, quantity:i.quantity, unit_price:i.unit_price })),
+      payment_method:       pendingMethod.value,
+      mpesa_reference:      pendingMethod.value === 'mpesa' && !skipCode ? mpesaCode.value : undefined,
+      checkout_request_id:  pendingMethod.value === 'mpesa' ? checkoutRequestId.value : undefined,
+      card_reference:       pendingMethod.value === 'card' ? cardRef.value : undefined,
+      discount:             discount.value > 0 ? discount.value : undefined,
+      notes:                paymentNotes.value || undefined,
     })
     lastInvoice.value      = inv
     changeDue.value        = pendingMethod.value === 'cash' ? amountTendered.value - total.value : 0
