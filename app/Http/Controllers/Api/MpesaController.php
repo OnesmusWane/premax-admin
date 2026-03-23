@@ -173,7 +173,6 @@ class MpesaController extends Controller
     }
         public function checkStatus(Request $request)
         {
-            Log::info('status', $request->checkout_request_id);
             $request->validate([
                 'checkout_request_id' => 'required|string',
             ]);
@@ -183,7 +182,6 @@ class MpesaController extends Controller
             if (!$tx) {
                 return response()->json(['status' => 'pending']);
             }
-            Log::info('status', $tx);
 
             return response()->json([
                 'status'               => $tx->status,
