@@ -182,6 +182,7 @@ class MpesaController extends Controller
             if (!$tx) {
                 return response()->json(['status' => 'pending']);
             }
+            Log::info('status', $tx);
 
             return response()->json([
                 'status'               => $tx->status,
