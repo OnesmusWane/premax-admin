@@ -128,6 +128,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::delete('/services/{service}',         [ServiceController::class, 'destroy']);
 
     Route::post('/mpesa/stk-push', [MpesaController::class, 'stkPush']);
+    Route::get('/mpesa/status',      [MpesaController::class, 'checkStatus']);
 
     Route::put('/profile', [ProfileController::class, 'update']);
 });

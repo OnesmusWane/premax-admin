@@ -171,4 +171,23 @@ class MpesaController extends Controller
         // Always respond with 0 — tells Safaricom you received the callback
         return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
     }
+        public function checkStatus(Request $request)
+    {
+        $request->validate([
+            'checkout_request_id' => 'required|string',
+        ]);
+
+        $tx = MpesaTransaction::where('checkout_request_id', $request->checkout_request_id)->first();
+
+        if (!$tx) {
+            return response()->json(['status' => 'pending']);
+        }
+
+        return response()->json([
+            'status'               => $tx->status,
+            'mpesa_receipt_number' => $tx->mpesa_receipt_number,
+            'amount'               => $tx->amount,
+            'result_desc'          => $tx->result_desc,
+        ]);
+    }
 }
