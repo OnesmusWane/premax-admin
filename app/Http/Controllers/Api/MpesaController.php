@@ -29,11 +29,10 @@ class MpesaController extends Controller
         }
 
         $amount    = (int) $request->amount;
-        $paybill   = Setting::get('mpesa_paybill');
-        $env       = Setting::get('mpesa_env', 'sandbox');
-        $consKey   = Setting::get('mpesa_consumer_key');
-        $consSec   = Setting::get('mpesa_consumer_secret');
-
+        $paybill = Setting::where('key', 'mpesa_paybill')->value('value');
+        $env     = Setting::where('key', 'mpesa_env')->value('value') ?? 'sandbox';
+        $consKey = Setting::where('key', 'mpesa_consumer_key')->value('value');
+        $consSec = Setting::where('key', 'mpesa_consumer_secret')->value('value');
         if (!$paybill || !$consKey || !$consSec) {
             return response()->json([
                 'message' => 'M-Pesa is not configured. Please update Settings.',
