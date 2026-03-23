@@ -778,7 +778,7 @@ async function sendStkPush() {
 
 async function pollStkStatus() {
   try {
-    const res = await post('/admin/mpesa/status', { checkout_request_id: checkoutRequestId.value })
+    const res = await get('/admin/mpesa/status', { checkout_request_id: checkoutRequestId.value })
     stkStatus.value = res.status
 
     if (res.status === 'success') {
