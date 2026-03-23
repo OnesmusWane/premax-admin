@@ -7,7 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use App\Models\Setting;
-
+use App\Models\MpesaTransaction;
 class MpesaController extends Controller
 {
     /**
@@ -108,24 +108,62 @@ class MpesaController extends Controller
      * Logs the result — you can extend to auto-confirm invoices.
      */
     public function callback(Request $request)
-    {
-        Log::info('M-Pesa callback', $request->all());
+{
+    Log::info('M-Pesa callback received', $request->all());
 
-        $body    = $request->input('Body.stkCallback');
-        $code    = $body['ResultCode'] ?? null;
-        $checkId = $body['CheckoutRequestID'] ?? null;
+    $body    = $request->input('Body.stkCallback');
+    $code    = $body['ResultCode'] ?? null;
+    $checkId = $body['CheckoutRequestID'] ?? null;
 
-        if ($code === 0) {
-            // Payment successful
-            $items  = collect($body['CallbackMetadata']['Item'] ?? []);
-            $amount = $items->firstWhere('Name', 'Amount')['Value'] ?? null;
-            $mpesaRef = $items->firstWhere('Name', 'MpesaReceiptNumber')['Value'] ?? null;
-            $phone  = $items->firstWhere('Name', 'PhoneNumber')['Value'] ?? null;
-
-            Log::info("M-Pesa payment confirmed: {$mpesaRef} — KES {$amount} from {$phone}");
-            // TODO: auto-match to invoice by CheckoutRequestID if needed
-        }
-
+    if (!$checkId) {
+        Log::warning('M-Pesa callback missing CheckoutRequestID');
         return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
     }
+
+    if ($code === 0) {
+        // ── Payment successful ──────────────────────────────────────────
+        $items    = collect($body['CallbackMetadata']['Item'] ?? []);
+        $amount   = $items->firstWhere('Name', 'Amount')['Value']             ?? null;
+        $mpesaRef = $items->firstWhere('Name', 'MpesaReceiptNumber')['Value'] ?? null;
+        $phone    = (string) ($items->firstWhere('Name', 'PhoneNumber')['Value'] ?? null);
+
+        Log::info("M-Pesa payment confirmed: {$mpesaRef} — KES {$amount} from {$phone}");
+
+        // Save to mpesa_transactions table
+        MpesaTransaction::updateOrCreate(
+            ['checkout_request_id' => $checkId],
+            [
+                'mpesa_receipt_number' => $mpesaRef,
+                'phone'                => $phone,
+                'amount'               => $amount,
+                'status'               => 'success',
+                'result_code'          => $code,
+                'result_desc'          => $body['ResultDesc'] ?? 'Success',
+            ]
+        );
+
+        // Optionally: find a pending booking/invoice and mark it as paid
+        // $booking = Booking::where('checkout_request_id', $checkId)->first();
+        // if ($booking) {
+        //     $booking->update(['payment_status' => 'paid', 'mpesa_ref' => $mpesaRef]);
+        // }
+
+    } else {
+        // ── Payment failed or cancelled ─────────────────────────────────
+        $desc = $body['ResultDesc'] ?? 'Failed';
+        Log::warning("M-Pesa payment failed: {$desc} (CheckoutRequestID: {$checkId})");
+
+        MpesaTransaction::updateOrCreate(
+            ['checkout_request_id' => $checkId],
+            [
+                'status'      => 'failed',
+                'result_code' => $code,
+                'result_desc' => $desc,
+            ]
+        );
+    }
+
+    // Always respond with 0 — tells Safaricom you received the callback
+    return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
+}
 }
