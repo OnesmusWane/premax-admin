@@ -173,6 +173,7 @@ class MpesaController extends Controller
     }
         public function checkStatus(Request $request)
         {
+            Log::info('status', $request->checkout_request_id);
             $request->validate([
                 'checkout_request_id' => 'required|string',
             ]);
