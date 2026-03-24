@@ -2,7 +2,7 @@
   <div class="p-4 md:p-6 space-y-4">
 
     <PageHeader title="Settings" subtitle="Manage business information and services">
-      <button v-if="!['services','users'].includes(activeTab)" @click="saveAll" :disabled="saving"
+      <button v-if="!['services','users','staff','reviews'].includes(activeTab)" @click="saveAll" :disabled="saving"
         class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl disabled:opacity-60 transition-colors">
         <span v-if="saving" class="w-3.5 h-3.5 border-2 border-white/40 border-t-white rounded-full animate-spin" />
         {{ saving ? 'Saving…' : 'Save Changes' }}
@@ -26,8 +26,6 @@
          MY PROFILE
     ══════════════════════════════════════════════════ -->
     <div v-if="activeTab === 'profile'" class="mx-4 md:mx-6 space-y-4">
-
-      <!-- Avatar + name -->
       <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div class="flex items-center gap-4 mb-6">
           <div class="w-14 h-14 rounded-full bg-red-100 text-red-600 font-extrabold text-xl flex items-center justify-center shrink-0">
@@ -39,7 +37,6 @@
             <div class="text-[10px] text-gray-400 capitalize mt-0.5">{{ auth.user?.role ?? 'Staff' }}</div>
           </div>
         </div>
-
         <h3 class="text-xs font-bold text-gray-700 uppercase tracking-widest mb-4">Personal Details</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="flex flex-col gap-1.5">
@@ -52,8 +49,6 @@
           </div>
         </div>
       </div>
-
-      <!-- Change password -->
       <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
         <h3 class="text-xs font-bold text-gray-700 uppercase tracking-widest">Change Password</h3>
         <p class="text-xs text-gray-400">Leave blank to keep your current password.</p>
@@ -81,14 +76,12 @@
           </button>
         </div>
       </div>
-
     </div>
 
     <!-- ══════════════════════════════════════════════════
-         USERS (staff management)
+         USERS
     ══════════════════════════════════════════════════ -->
     <div v-if="activeTab === 'users'" class="mx-4 md:mx-6 space-y-4">
-
       <div class="flex items-center justify-between">
         <div class="text-xs text-gray-500">{{ users.length }} user{{ users.length !== 1 ? 's' : '' }}</div>
         <button @click="openAddUser"
@@ -96,7 +89,6 @@
           <PlusIcon class="w-3.5 h-3.5" /> Add User
         </button>
       </div>
-
       <div class="bg-white rounded-2xl border border-gray-100 shadow-sm table-wrap">
         <div v-if="loadingUsers" class="p-8 text-center text-gray-400 text-xs">
           <div class="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -126,10 +118,8 @@
                 user.is_active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">
                 {{ user.is_active !== false ? 'Active' : 'Inactive' }}
               </span>
-              <button @click="openEditUser(user)"
-                class="text-xs font-semibold text-red-600 hover:underline">Edit</button>
-              <button v-if="user.id !== auth.user?.id"
-                @click="toggleUserActive(user)"
+              <button @click="openEditUser(user)" class="text-xs font-semibold text-red-600 hover:underline">Edit</button>
+              <button v-if="user.id !== auth.user?.id" @click="toggleUserActive(user)"
                 :class="['text-xs font-semibold', user.is_active !== false ? 'text-gray-400 hover:text-red-500' : 'text-green-600 hover:text-green-700']">
                 {{ user.is_active !== false ? 'Deactivate' : 'Activate' }}
               </button>
@@ -406,6 +396,154 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════
+         STAFF MEMBERS
+    ══════════════════════════════════════════════════ -->
+    <div v-if="activeTab === 'staff'" class="mx-4 md:mx-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="text-xs text-gray-500">{{ staffMembers.length }} staff member{{ staffMembers.length !== 1 ? 's' : '' }}</div>
+        <button @click="openAddStaff"
+          class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-xl">
+          <PlusIcon class="w-3.5 h-3.5" /> Add Member
+        </button>
+      </div>
+
+      <div v-if="loadingStaff" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-400 text-xs">
+        <div class="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+        Loading staff…
+      </div>
+      <div v-else-if="!staffMembers.length" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-400 text-xs">
+        No staff members yet.
+      </div>
+      <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div v-for="member in staffMembers" :key="member.id"
+          class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 flex flex-col gap-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div v-if="member.avatar_url"
+                class="w-11 h-11 rounded-full object-cover shrink-0 overflow-hidden">
+                <img :src="member.avatar_url" :alt="member.name" class="w-full h-full object-cover">
+              </div>
+              <div v-else
+                class="w-11 h-11 rounded-full flex items-center justify-center text-white text-sm font-extrabold shrink-0"
+                :style="`background:${member.avatar_color ?? '#DC2626'}`">
+                {{ staffInitials(member.name) }}
+              </div>
+              <div>
+                <div class="text-xs font-bold text-gray-900">{{ member.name }}</div>
+                <div class="text-[10px] text-red-600 font-semibold mt-0.5">{{ member.role }}</div>
+              </div>
+            </div>
+            <span :class="['text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0',
+              member.show_on_website ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">
+              {{ member.show_on_website ? 'Visible' : 'Hidden' }}
+            </span>
+          </div>
+          <p v-if="member.bio" class="text-[10px] text-gray-500 leading-relaxed line-clamp-3">{{ member.bio }}</p>
+          <div class="flex items-center gap-3 mt-auto pt-2 border-t border-gray-50">
+            <div class="text-[10px] text-gray-400 flex-1">
+              <span v-if="member.email">{{ member.email }}</span>
+              <span v-if="member.phone" :class="member.email ? 'ml-2' : ''">{{ member.phone }}</span>
+            </div>
+            <button @click="openEditStaff(member)" class="text-xs font-semibold text-red-600 hover:underline shrink-0">Edit</button>
+            <button @click="toggleStaffVisibility(member)"
+              :class="['text-xs font-semibold shrink-0', member.show_on_website ? 'text-gray-400 hover:text-red-500' : 'text-green-600 hover:text-green-700']">
+              {{ member.show_on_website ? 'Hide' : 'Show' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
+         REVIEWS
+    ══════════════════════════════════════════════════ -->
+    <div v-if="activeTab === 'reviews'" class="mx-4 md:mx-6 space-y-4">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
+          <div class="text-xs text-gray-500">{{ reviews.length }} review{{ reviews.length !== 1 ? 's' : '' }}</div>
+          <!-- Filter -->
+          <div class="flex gap-1">
+            <button v-for="f in reviewFilters" :key="f.key" @click="reviewFilter = f.key"
+              :class="['px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors',
+                reviewFilter === f.key ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200']">
+              {{ f.label }}
+            </button>
+          </div>
+        </div>
+        <button @click="openAddReview"
+          class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2 rounded-xl shrink-0">
+          <PlusIcon class="w-3.5 h-3.5" /> Add Review
+        </button>
+      </div>
+
+      <div v-if="loadingReviews" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-400 text-xs">
+        <div class="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+        Loading reviews…
+      </div>
+      <div v-else-if="!filteredReviews.length" class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center text-gray-400 text-xs">
+        No reviews found.
+      </div>
+      <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div v-for="review in filteredReviews" :key="review.id"
+          class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col gap-3">
+          <!-- Header -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <div class="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
+                :style="`background:${review.reviewer_avatar_color ?? '#DC2626'}`">
+                {{ review.reviewer_initials ?? staffInitials(review.reviewer_name) }}
+              </div>
+              <div>
+                <div class="text-xs font-bold text-gray-900">{{ review.reviewer_name }}</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span v-for="n in 5" :key="n"
+                    :class="['text-[10px]', n <= review.rating ? 'text-yellow-400' : 'text-gray-200']">★</span>
+                  <span class="text-[9px] text-gray-400 ml-1">{{ review.rating }}/5</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex flex-col items-end gap-1 shrink-0">
+              <span :class="['text-[9px] font-bold px-2 py-0.5 rounded-full',
+                review.status === 'approved' ? 'bg-green-100 text-green-700' :
+                review.status === 'pending'  ? 'bg-yellow-100 text-yellow-700' :
+                'bg-red-100 text-red-600']">
+                {{ review.status }}
+              </span>
+              <span v-if="review.is_featured" class="text-[9px] font-bold bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full">Featured</span>
+            </div>
+          </div>
+
+          <!-- Body -->
+          <p class="text-[11px] text-gray-600 leading-relaxed line-clamp-4 flex-1">{{ review.body }}</p>
+
+          <!-- Meta -->
+          <div class="flex items-center gap-2 text-[9px] text-gray-400 flex-wrap">
+            <span class="capitalize px-1.5 py-0.5 bg-gray-100 rounded-md font-medium">{{ review.source }}</span>
+            <span v-if="review.is_verified_customer" class="text-green-600 font-semibold">✓ Verified</span>
+            <span>{{ formatReviewDate(review.reviewed_at) }}</span>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center justify-between pt-2 border-t border-gray-50 gap-2">
+            <div class="flex gap-2">
+              <button v-if="review.status !== 'approved'" @click="updateReviewStatus(review, 'approved')"
+                class="text-[10px] font-bold text-green-600 hover:underline">Approve</button>
+              <button v-if="review.status !== 'rejected'" @click="updateReviewStatus(review, 'rejected')"
+                class="text-[10px] font-bold text-red-500 hover:underline">Reject</button>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <button @click="toggleReviewFeatured(review)"
+                :class="['text-[10px] font-semibold', review.is_featured ? 'text-blue-600 hover:text-gray-500' : 'text-gray-400 hover:text-blue-600']">
+                {{ review.is_featured ? 'Unfeature' : 'Feature' }}
+              </button>
+              <button @click="openEditReview(review)" class="text-[10px] font-semibold text-red-600 hover:underline">Edit</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════
          MODAL: ADD / EDIT USER
     ══════════════════════════════════════════════════ -->
     <Modal v-model="showUserForm" :title="editingUser ? 'Edit User' : 'Add User'" size="md">
@@ -427,7 +565,6 @@
               <option value="super_admin">Super Admin</option>
             </select>
           </div>
-          <!-- Password only required for new users -->
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-gray-600">
               Password <span v-if="!editingUser" class="text-red-500">*</span>
@@ -541,6 +678,155 @@
       </template>
     </Modal>
 
+    <!-- ══════════════════════════════════════════════════
+         MODAL: ADD / EDIT STAFF MEMBER
+    ══════════════════════════════════════════════════ -->
+    <Modal v-model="showStaffForm" :title="editingStaff ? 'Edit Staff Member' : 'Add Staff Member'" size="md">
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Full Name <span class="text-red-500">*</span></label>
+            <input v-model="staffForm.name" class="input-base" placeholder="e.g. James Mwangi">
+          </div>
+          <div class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Role / Title <span class="text-red-500">*</span></label>
+            <input v-model="staffForm.role" class="input-base" placeholder="e.g. Lead Technician">
+          </div>
+          <div class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Bio</label>
+            <textarea v-model="staffForm.bio" rows="3" class="input-base resize-none"
+              placeholder="Brief bio shown on the website…" />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Email</label>
+            <input v-model="staffForm.email" type="email" class="input-base" placeholder="james@premaxautocare.co.ke">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Phone</label>
+            <input v-model="staffForm.phone" class="input-base" placeholder="+254 700 000000">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Avatar Colour</label>
+            <div class="flex items-center gap-2">
+              <input v-model="staffForm.avatar_color" type="color" class="w-10 h-9 rounded-lg border border-gray-200 cursor-pointer">
+              <input v-model="staffForm.avatar_color" class="input-base font-mono flex-1" placeholder="#DC2626">
+            </div>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Sort Order</label>
+            <input v-model.number="staffForm.sort_order" type="number" min="1" class="input-base" placeholder="1">
+          </div>
+          <div class="flex items-center gap-3 sm:col-span-2">
+            <button type="button" @click="staffForm.show_on_website = !staffForm.show_on_website"
+              :class="['relative inline-flex h-5 w-9 items-center rounded-full transition-colors', staffForm.show_on_website ? 'bg-red-600' : 'bg-gray-200']">
+              <span :class="['inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow', staffForm.show_on_website ? 'translate-x-4' : 'translate-x-1']" />
+            </button>
+            <label class="text-xs font-semibold text-gray-600">Show on Website</label>
+          </div>
+        </div>
+        <div v-if="staffFormError" class="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{{ staffFormError }}</div>
+      </div>
+      <template #footer>
+        <div class="flex justify-between items-center w-full">
+          <button v-if="editingStaff" @click="deleteStaff(editingStaff)"
+            class="text-xs font-semibold text-red-500 hover:underline">Delete</button>
+          <div v-else />
+          <div class="flex gap-2">
+            <button @click="showStaffForm = false" class="px-4 py-2 text-xs font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+            <button @click="saveStaff" :disabled="savingStaff"
+              class="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-60">
+              {{ savingStaff ? 'Saving…' : editingStaff ? 'Save Changes' : 'Add Member' }}
+            </button>
+          </div>
+        </div>
+      </template>
+    </Modal>
+
+    <!-- ══════════════════════════════════════════════════
+         MODAL: ADD / EDIT REVIEW
+    ══════════════════════════════════════════════════ -->
+    <Modal v-model="showReviewForm" :title="editingReview ? 'Edit Review' : 'Add Review'" size="md">
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Reviewer Name <span class="text-red-500">*</span></label>
+            <input v-model="reviewForm.reviewer_name" class="input-base" placeholder="e.g. David Ochieng">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Source</label>
+            <select v-model="reviewForm.source" class="input-base">
+              <option value="website">Website</option>
+              <option value="google">Google</option>
+              <option value="facebook">Facebook</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="walk_in">Walk-in</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Review Body <span class="text-red-500">*</span></label>
+            <textarea v-model="reviewForm.body" rows="4" class="input-base resize-none"
+              placeholder="Customer's feedback…" />
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Rating</label>
+            <div class="flex gap-2 pt-1">
+              <button v-for="n in 5" :key="n" type="button" @click="reviewForm.rating = n"
+                :class="['text-xl transition-transform hover:scale-110', n <= reviewForm.rating ? 'text-yellow-400' : 'text-gray-200']">★</button>
+            </div>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Status</label>
+            <select v-model="reviewForm.status" class="input-base">
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Avatar Colour</label>
+            <div class="flex items-center gap-2">
+              <input v-model="reviewForm.reviewer_avatar_color" type="color" class="w-10 h-9 rounded-lg border border-gray-200 cursor-pointer">
+              <input v-model="reviewForm.reviewer_avatar_color" class="input-base font-mono flex-1" placeholder="#DC2626">
+            </div>
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Reviewed At</label>
+            <input v-model="reviewForm.reviewed_at" type="date" class="input-base">
+          </div>
+          <div class="flex items-center gap-3">
+            <button type="button" @click="reviewForm.is_featured = !reviewForm.is_featured"
+              :class="['relative inline-flex h-5 w-9 items-center rounded-full transition-colors', reviewForm.is_featured ? 'bg-red-600' : 'bg-gray-200']">
+              <span :class="['inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow', reviewForm.is_featured ? 'translate-x-4' : 'translate-x-1']" />
+            </button>
+            <label class="text-xs font-semibold text-gray-600">Featured</label>
+          </div>
+          <div class="flex items-center gap-3">
+            <button type="button" @click="reviewForm.is_verified_customer = !reviewForm.is_verified_customer"
+              :class="['relative inline-flex h-5 w-9 items-center rounded-full transition-colors', reviewForm.is_verified_customer ? 'bg-red-600' : 'bg-gray-200']">
+              <span :class="['inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow', reviewForm.is_verified_customer ? 'translate-x-4' : 'translate-x-1']" />
+            </button>
+            <label class="text-xs font-semibold text-gray-600">Verified Customer</label>
+          </div>
+        </div>
+        <div v-if="reviewFormError" class="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{{ reviewFormError }}</div>
+      </div>
+      <template #footer>
+        <div class="flex justify-between items-center w-full">
+          <button v-if="editingReview" @click="deleteReview(editingReview)"
+            class="text-xs font-semibold text-red-500 hover:underline">Delete</button>
+          <div v-else />
+          <div class="flex gap-2">
+            <button @click="showReviewForm = false" class="px-4 py-2 text-xs font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+            <button @click="saveReview" :disabled="savingReview"
+              class="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-60">
+              {{ savingReview ? 'Saving…' : editingReview ? 'Save Changes' : 'Add Review' }}
+            </button>
+          </div>
+        </div>
+      </template>
+    </Modal>
+
   </div>
 </template>
 
@@ -553,7 +839,7 @@ import { useToastStore } from '@/stores/toast'
 import PageHeader        from '@/components/PageHeader.vue'
 import Modal             from '@/components/Modal.vue'
 
-const { get, post, put, patch } = useApi()
+const { get, post, put, patch, destroy } = useApi()
 const auth  = useAuthStore()
 const toast = useToastStore()
 
@@ -564,37 +850,37 @@ const tabs = [
   { key: 'social',   label: 'Social Media' },
   { key: 'hours',    label: 'Business Hours' },
   { key: 'services', label: 'Services' },
+  { key: 'staff',    label: 'Staff Members' },
+  { key: 'reviews',  label: 'Reviews' },
   { key: 'system',   label: 'System' },
 ]
 const activeTab = ref('profile')
 
 // ── My Profile ─────────────────────────────────────────────────────────────────
-const profileForm = ref({ name:'', email:'', current_password:'', new_password:'', new_password_confirmation:'' })
+const profileForm    = ref({ name:'', email:'', current_password:'', new_password:'', new_password_confirmation:'' })
 const savingProfile  = ref(false)
 const profileError   = ref(null)
 const profileSuccess = ref(false)
 
-const profileInitials = computed(() => {
-  return auth.user?.name?.split(' ').slice(0,2).map(w => w[0]?.toUpperCase()).join('') ?? '?'
-})
+const profileInitials = computed(() =>
+  auth.user?.name?.split(' ').slice(0,2).map(w => w[0]?.toUpperCase()).join('') ?? '?'
+)
 
-// Pre-fill profile form when tab opens
 watch(activeTab, tab => {
   if (tab === 'profile') {
     profileForm.value = { name: auth.user?.name ?? '', email: auth.user?.email ?? '', current_password:'', new_password:'', new_password_confirmation:'' }
-    profileError.value   = null
-    profileSuccess.value = false
+    profileError.value = null; profileSuccess.value = false
   }
-  if (tab === 'users' && !users.value.length) loadUsers()
+  if (tab === 'users'   && !users.value.length)        loadUsers()
+  if (tab === 'staff'   && !staffMembers.value.length) loadStaff()
+  if (tab === 'reviews' && !reviews.value.length)      loadReviews()
 })
 
 async function saveProfile() {
   savingProfile.value = true; profileError.value = null; profileSuccess.value = false
   try {
-    if (profileForm.value.new_password) {
-      if (profileForm.value.new_password !== profileForm.value.new_password_confirmation) {
-        profileError.value = 'New passwords do not match.'; savingProfile.value = false; return
-      }
+    if (profileForm.value.new_password && profileForm.value.new_password !== profileForm.value.new_password_confirmation) {
+      profileError.value = 'New passwords do not match.'; savingProfile.value = false; return
     }
     const payload = { name: profileForm.value.name, email: profileForm.value.email }
     if (profileForm.value.new_password) {
@@ -603,26 +889,21 @@ async function saveProfile() {
       payload.password_confirmation = profileForm.value.new_password_confirmation
     }
     await put('/admin/profile', payload)
-    auth.user.name  = profileForm.value.name
-    auth.user.email = profileForm.value.email
-    profileSuccess.value = true
-    toast.success('Profile updated.')
-    profileForm.value.current_password = ''
-    profileForm.value.new_password = ''
-    profileForm.value.new_password_confirmation = ''
-  } catch (e) {
-    profileError.value = e.response?.data?.message ?? 'Failed to update profile.'
-  } finally { savingProfile.value = false }
+    auth.user.name = profileForm.value.name; auth.user.email = profileForm.value.email
+    profileSuccess.value = true; toast.success('Profile updated.')
+    profileForm.value.current_password = ''; profileForm.value.new_password = ''; profileForm.value.new_password_confirmation = ''
+  } catch (e) { profileError.value = e.response?.data?.message ?? 'Failed to update profile.' }
+  finally { savingProfile.value = false }
 }
 
 // ── Users ──────────────────────────────────────────────────────────────────────
-const users        = ref([])
-const loadingUsers = ref(false)
-const showUserForm = ref(false)
-const savingUser   = ref(false)
-const editingUser  = ref(null)
+const users         = ref([])
+const loadingUsers  = ref(false)
+const showUserForm  = ref(false)
+const savingUser    = ref(false)
+const editingUser   = ref(null)
 const userFormError = ref(null)
-const userForm = ref({ name:'', email:'', role:'staff', password:'', password_confirmation:'' })
+const userForm      = ref({ name:'', email:'', role:'staff', password:'', password_confirmation:'' })
 
 const initials    = name => name?.split(' ').slice(0,2).map(w => w[0]?.toUpperCase()).join('') ?? '?'
 const colors      = ['#EF4444','#3B82F6','#22C55E','#A855F7','#F97316','#EC4899','#14B8A6','#EAB308']
@@ -630,70 +911,34 @@ const avatarColor = name => colors[(name?.charCodeAt(0) ?? 0) % colors.length]
 
 async function loadUsers() {
   loadingUsers.value = true
-  try { users.value = await get('/admin/users') ?? [] }
-  catch {}
+  try { users.value = await get('/admin/users') ?? [] } catch {}
   finally { loadingUsers.value = false }
 }
-
-function openAddUser() {
-  editingUser.value = null
-  userForm.value = { name:'', email:'', role:'staff', password:'', password_confirmation:'' }
-  userFormError.value = null; showUserForm.value = true
-}
-
-function openEditUser(user) {
-  editingUser.value = user
-  userForm.value = { name:user.name, email:user.email, role:user.role??'staff', password:'', password_confirmation:'' }
-  userFormError.value = null; showUserForm.value = true
-}
-
+function openAddUser() { editingUser.value=null; userForm.value={name:'',email:'',role:'staff',password:'',password_confirmation:''}; userFormError.value=null; showUserForm.value=true }
+function openEditUser(u) { editingUser.value=u; userForm.value={name:u.name,email:u.email,role:u.role??'staff',password:'',password_confirmation:''}; userFormError.value=null; showUserForm.value=true }
 async function saveUser() {
-  savingUser.value = true; userFormError.value = null
+  savingUser.value=true; userFormError.value=null
   try {
-    const payload = { name:userForm.value.name, email:userForm.value.email, role:userForm.value.role }
+    const p={name:userForm.value.name,email:userForm.value.email,role:userForm.value.role}
     if (userForm.value.password) {
-      if (userForm.value.password !== userForm.value.password_confirmation) {
-        userFormError.value = 'Passwords do not match.'; savingUser.value = false; return
-      }
-      payload.password              = userForm.value.password
-      payload.password_confirmation = userForm.value.password_confirmation
-    } else if (!editingUser.value) {
-      userFormError.value = 'Password is required for new users.'; savingUser.value = false; return
-    }
-
-    if (editingUser.value) {
-      const u = await put(`/admin/users/${editingUser.value.id}`, payload)
-      const i = users.value.findIndex(x => x.id === editingUser.value.id)
-      if (i > -1) users.value[i] = { ...users.value[i], ...u }
-      toast.success('User updated.')
-    } else {
-      const u = await post('/admin/users', payload)
-      users.value.push(u)
-      toast.success('User added.')
-    }
-    showUserForm.value = false
-  } catch (e) { userFormError.value = e.response?.data?.message ?? 'Failed to save user.' }
-  finally { savingUser.value = false }
+      if (userForm.value.password!==userForm.value.password_confirmation) { userFormError.value='Passwords do not match.'; savingUser.value=false; return }
+      p.password=userForm.value.password; p.password_confirmation=userForm.value.password_confirmation
+    } else if (!editingUser.value) { userFormError.value='Password is required for new users.'; savingUser.value=false; return }
+    if (editingUser.value) { const u=await put(`/admin/users/${editingUser.value.id}`,p); const i=users.value.findIndex(x=>x.id===editingUser.value.id); if(i>-1) users.value[i]={...users.value[i],...u}; toast.success('User updated.') }
+    else { const u=await post('/admin/users',p); users.value.push(u); toast.success('User added.') }
+    showUserForm.value=false
+  } catch(e) { userFormError.value=e.response?.data?.message??'Failed to save user.' }
+  finally { savingUser.value=false }
 }
-
 async function toggleUserActive(user) {
-  try {
-    await patch(`/admin/users/${user.id}`, { is_active: !user.is_active })
-    user.is_active = !user.is_active
-    toast.success(user.is_active ? 'User activated.' : 'User deactivated.')
-  } catch { toast.error('Failed to update user.') }
+  try { await patch(`/admin/users/${user.id}`,{is_active:!user.is_active}); user.is_active=!user.is_active; toast.success(user.is_active?'User activated.':'User deactivated.') }
+  catch { toast.error('Failed to update user.') }
 }
 
 // ── Contact ────────────────────────────────────────────────────────────────────
 const contact = ref({ phone_primary:'',phone_secondary:'',phone_whatsapp:'',email_primary:'',email_support:'',facebook_url:'',instagram_url:'',twitter_url:'',tiktok_url:'',youtube_url:'',linkedin_url:'',website_url:'',street_address:'',landmark:'',building:'',area:'',city:'',county:'',po_box:'',postal_code:'',latitude:null,longitude:null,map_zoom:16,google_maps_url:'',what3words:'' })
-
 const businessHours = ref({ monday:{open:'07:30',close:'18:00',closed:false},tuesday:{open:'07:30',close:'18:00',closed:false},wednesday:{open:'07:30',close:'18:00',closed:false},thursday:{open:'07:30',close:'18:00',closed:false},friday:{open:'07:30',close:'18:00',closed:false},saturday:{open:'08:00',close:'17:00',closed:false},sunday:{open:null,close:null,closed:true} })
-
-const days = [
-  {key:'monday',label:'Monday'},{key:'tuesday',label:'Tuesday'},{key:'wednesday',label:'Wednesday'},
-  {key:'thursday',label:'Thursday'},{key:'friday',label:'Friday'},{key:'saturday',label:'Saturday'},{key:'sunday',label:'Sunday'},
-]
-
+const days = [{key:'monday',label:'Monday'},{key:'tuesday',label:'Tuesday'},{key:'wednesday',label:'Wednesday'},{key:'thursday',label:'Thursday'},{key:'friday',label:'Friday'},{key:'saturday',label:'Saturday'},{key:'sunday',label:'Sunday'}]
 const socialFields = [
   {key:'facebook_url', label:'Facebook',   icon:'f', bg:'bg-blue-600', placeholder:'https://facebook.com/premaxautocare'},
   {key:'instagram_url',label:'Instagram',  icon:'📷',bg:'bg-pink-600', placeholder:'https://instagram.com/premaxautocare'},
@@ -703,26 +948,189 @@ const socialFields = [
   {key:'linkedin_url', label:'LinkedIn',   icon:'in',bg:'bg-blue-700', placeholder:'https://linkedin.com/company/premaxautocare'},
   {key:'website_url',  label:'Website',    icon:'🌐',bg:'bg-gray-600', placeholder:'https://premaxautocare.co.ke'},
 ]
-
 function toggleDayClosed(day) { businessHours.value[day].closed = !businessHours.value[day].closed }
 
+// ── System settings ────────────────────────────────────────────────────────────
 const settings = ref({ mpesa_paybill:'',mpesa_env:'sandbox',mpesa_consumer_key:'',mpesa_consumer_secret:'',default_vat:16,invoice_prefix:'INV' })
 
 // ── Services ───────────────────────────────────────────────────────────────────
 const categories  = ref([])
 const allServices = ref([])
 const saving      = ref(false)
-
 const showServiceForm   = ref(false); const showCategoryForm  = ref(false)
 const savingService     = ref(false); const savingCategory    = ref(false)
 const editingService    = ref(null);  const editingCategory   = ref(null)
 const serviceFormError  = ref(null);  const categoryFormError = ref(null)
-
 const serviceForm  = ref({name:'',description:'',service_category_id:'',price_from:null,price_to:null,duration_minutes:null,is_popular:false,is_active:true})
 const categoryForm = ref({name:'',description:'',color:'#DC2626'})
-
 const servicesInCategory = id => allServices.value.filter(s => s.service_category_id === id)
-const formatDuration = m => m >= 60 ? `${Math.floor(m/60)}h${m%60?' '+m%60+'m':''}` : `${m}m`
+const formatDuration     = m => m >= 60 ? `${Math.floor(m/60)}h${m%60?' '+m%60+'m':''}` : `${m}m`
+
+// ── Staff Members ──────────────────────────────────────────────────────────────
+const staffMembers   = ref([])
+const loadingStaff   = ref(false)
+const showStaffForm  = ref(false)
+const savingStaff    = ref(false)
+const editingStaff   = ref(null)
+const staffFormError = ref(null)
+const staffForm      = ref({ name:'', role:'', bio:'', email:'', phone:'', avatar_color:'#DC2626', sort_order:1, show_on_website:true })
+
+const staffInitials = name => name?.split(' ').slice(0,2).map(w => w[0]?.toUpperCase()).join('') ?? '?'
+
+async function loadStaff() {
+  loadingStaff.value = true
+  try { staffMembers.value = await get('/admin/staff-members') ?? [] } catch {}
+  finally { loadingStaff.value = false }
+}
+
+function openAddStaff() {
+  editingStaff.value = null
+  staffForm.value = { name:'', role:'', bio:'', email:'', phone:'', avatar_color:'#DC2626', sort_order: staffMembers.value.length + 1, show_on_website:true }
+  staffFormError.value = null; showStaffForm.value = true
+}
+
+function openEditStaff(member) {
+  editingStaff.value = member
+  staffForm.value = { name:member.name, role:member.role, bio:member.bio??'', email:member.email??'', phone:member.phone??'', avatar_color:member.avatar_color??'#DC2626', sort_order:member.sort_order??1, show_on_website:member.show_on_website }
+  staffFormError.value = null; showStaffForm.value = true
+}
+
+async function saveStaff() {
+  if (!staffForm.value.name || !staffForm.value.role) { staffFormError.value = 'Name and role are required.'; return }
+  savingStaff.value = true; staffFormError.value = null
+  try {
+    if (editingStaff.value) {
+      const u = await put(`/admin/staff-members/${editingStaff.value.id}`, staffForm.value)
+      const i = staffMembers.value.findIndex(s => s.id === editingStaff.value.id)
+      if (i > -1) staffMembers.value[i] = { ...staffMembers.value[i], ...u }
+      toast.success('Staff member updated.')
+    } else {
+      const s = await post('/admin/staff-members', staffForm.value)
+      staffMembers.value.push(s); toast.success('Staff member added.')
+    }
+    showStaffForm.value = false
+  } catch (e) { staffFormError.value = e.response?.data?.message ?? 'Failed to save.' }
+  finally { savingStaff.value = false }
+}
+
+async function toggleStaffVisibility(member) {
+  try {
+    await patch(`/admin/staff-members/${member.id}`, { show_on_website: !member.show_on_website })
+    member.show_on_website = !member.show_on_website
+    toast.success(member.show_on_website ? 'Now visible on website.' : 'Hidden from website.')
+  } catch { toast.error('Failed to update.') }
+}
+
+async function deleteStaff(member) {
+  if (!confirm(`Remove ${member.name} from staff?`)) return
+  try {
+    await destroy(`/admin/staff-members/${member.id}`)
+    staffMembers.value = staffMembers.value.filter(s => s.id !== member.id)
+    showStaffForm.value = false; toast.success('Staff member removed.')
+  } catch { toast.error('Failed to delete.') }
+}
+
+// ── Reviews ────────────────────────────────────────────────────────────────────
+const reviews        = ref([])
+const loadingReviews = ref(false)
+const showReviewForm = ref(false)
+const savingReview   = ref(false)
+const editingReview  = ref(null)
+const reviewFormError = ref(null)
+const reviewFilter   = ref('all')
+
+const reviewFilters = [
+  { key: 'all',      label: 'All' },
+  { key: 'approved', label: 'Approved' },
+  { key: 'pending',  label: 'Pending' },
+  { key: 'featured', label: 'Featured' },
+]
+
+const reviewForm = ref({
+  reviewer_name: '', reviewer_avatar_color: '#DC2626',
+  rating: 5, body: '', source: 'website',
+  status: 'approved', is_featured: false,
+  is_verified_customer: true, reviewed_at: new Date().toISOString().split('T')[0],
+})
+
+const filteredReviews = computed(() => {
+  if (reviewFilter.value === 'all')      return reviews.value
+  if (reviewFilter.value === 'featured') return reviews.value.filter(r => r.is_featured)
+  return reviews.value.filter(r => r.status === reviewFilter.value)
+})
+
+const formatReviewDate = d => d ? new Date(d).toLocaleDateString('en-KE', { day:'numeric', month:'short', year:'numeric' }) : ''
+
+async function loadReviews() {
+  loadingReviews.value = true
+  try { reviews.value = await get('/admin/reviews') ?? [] } catch {}
+  finally { loadingReviews.value = false }
+}
+
+function openAddReview() {
+  editingReview.value = null
+  reviewForm.value = { reviewer_name:'', reviewer_avatar_color:'#DC2626', rating:5, body:'', source:'website', status:'approved', is_featured:false, is_verified_customer:true, reviewed_at: new Date().toISOString().split('T')[0] }
+  reviewFormError.value = null; showReviewForm.value = true
+}
+
+function openEditReview(review) {
+  editingReview.value = review
+  reviewForm.value = {
+    reviewer_name:        review.reviewer_name,
+    reviewer_avatar_color:review.reviewer_avatar_color ?? '#DC2626',
+    rating:               review.rating,
+    body:                 review.body,
+    source:               review.source ?? 'website',
+    status:               review.status ?? 'approved',
+    is_featured:          review.is_featured,
+    is_verified_customer: review.is_verified_customer,
+    reviewed_at:          review.reviewed_at ? review.reviewed_at.split('T')[0] : new Date().toISOString().split('T')[0],
+  }
+  reviewFormError.value = null; showReviewForm.value = true
+}
+
+async function saveReview() {
+  if (!reviewForm.value.reviewer_name || !reviewForm.value.body) { reviewFormError.value = 'Name and review body are required.'; return }
+  savingReview.value = true; reviewFormError.value = null
+  try {
+    if (editingReview.value) {
+      const u = await put(`/admin/reviews/${editingReview.value.id}`, reviewForm.value)
+      const i = reviews.value.findIndex(r => r.id === editingReview.value.id)
+      if (i > -1) reviews.value[i] = { ...reviews.value[i], ...u }
+      toast.success('Review updated.')
+    } else {
+      const r = await post('/admin/reviews', reviewForm.value)
+      reviews.value.unshift(r); toast.success('Review added.')
+    }
+    showReviewForm.value = false
+  } catch (e) { reviewFormError.value = e.response?.data?.message ?? 'Failed to save.' }
+  finally { savingReview.value = false }
+}
+
+async function updateReviewStatus(review, status) {
+  try {
+    await patch(`/admin/reviews/${review.id}`, { status })
+    review.status = status
+    toast.success(status === 'approved' ? 'Review approved.' : 'Review rejected.')
+  } catch { toast.error('Failed to update.') }
+}
+
+async function toggleReviewFeatured(review) {
+  try {
+    await patch(`/admin/reviews/${review.id}`, { is_featured: !review.is_featured })
+    review.is_featured = !review.is_featured
+    toast.success(review.is_featured ? 'Review featured.' : 'Review unfeatured.')
+  } catch { toast.error('Failed to update.') }
+}
+
+async function deleteReview(review) {
+  if (!confirm('Delete this review?')) return
+  try {
+    await destroy(`/admin/reviews/${review.id}`)
+    reviews.value = reviews.value.filter(r => r.id !== review.id)
+    showReviewForm.value = false; toast.success('Review deleted.')
+  } catch { toast.error('Failed to delete.') }
+}
 
 // ── Load ───────────────────────────────────────────────────────────────────────
 async function loadContact() {
@@ -740,18 +1148,17 @@ async function loadSettings() {
 
 async function loadServices() {
   try {
-    const [cats, svcs] = await Promise.all([get('/admin/service-categories'), get('/admin/services',{per_page:200})])
+    const [cats, svcs] = await Promise.all([get('/admin/service-categories'), get('/admin/services', { per_page:200 })])
     categories.value  = cats ?? []
     allServices.value = svcs?.data ?? svcs ?? []
   } catch {}
 }
 
-// ── Save ───────────────────────────────────────────────────────────────────────
 async function saveAll() {
   saving.value = true
   try {
     if (['contact','social','hours'].includes(activeTab.value)) {
-      await put('/admin/settings/contact', {...contact.value, business_hours: businessHours.value})
+      await put('/admin/settings/contact', { ...contact.value, business_hours: businessHours.value })
       toast.success('Settings saved.')
     }
     if (activeTab.value === 'system') { await post('/admin/settings', settings.value); toast.success('System settings saved.') }
@@ -762,7 +1169,6 @@ async function saveAll() {
 // ── Service CRUD ───────────────────────────────────────────────────────────────
 function openAddService(cat) { editingService.value=null; serviceForm.value={name:'',description:'',service_category_id:cat?.id??'',price_from:null,price_to:null,duration_minutes:null,is_popular:false,is_active:true}; serviceFormError.value=null; showServiceForm.value=true }
 function openEditService(svc) { editingService.value=svc; serviceForm.value={name:svc.name,description:svc.description??'',service_category_id:svc.service_category_id,price_from:svc.price_from,price_to:svc.price_to,duration_minutes:svc.duration_minutes,is_popular:svc.is_popular,is_active:svc.is_active}; serviceFormError.value=null; showServiceForm.value=true }
-
 async function saveService() {
   savingService.value=true; serviceFormError.value=null
   try {
@@ -772,15 +1178,12 @@ async function saveService() {
   } catch(e) { serviceFormError.value=e.response?.data?.message??'Failed.' }
   finally { savingService.value=false }
 }
-
 async function toggleServiceActive(svc) {
   try { const u=await patch(`/admin/services/${svc.id}`,{is_active:!svc.is_active}); svc.is_active=u.is_active; toast.success(svc.is_active?'Service activated.':'Service deactivated.') }
   catch { toast.error('Failed to update.') }
 }
-
 function openAddCategory() { editingCategory.value=null; categoryForm.value={name:'',description:'',color:'#DC2626'}; categoryFormError.value=null; showCategoryForm.value=true }
 function openEditCategory(cat) { editingCategory.value=cat; categoryForm.value={name:cat.name,description:cat.description??'',color:cat.color??'#DC2626'}; categoryFormError.value=null; showCategoryForm.value=true }
-
 async function saveCategory() {
   savingCategory.value=true; categoryFormError.value=null
   try {

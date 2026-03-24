@@ -18,7 +18,9 @@ use App\Http\Controllers\Api\{
     UserController,
     ServiceController,
     ServiceCategoryController,
-    ProfileController
+    ProfileController,
+    StaffMemberController,
+    ReviewController
 };
 
 
@@ -131,5 +133,21 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::get('/mpesa/status',      [MpesaController::class, 'checkStatus']);
 
     Route::put('/profile', [ProfileController::class, 'update']);
+
+    // Staff Members
+    Route::get   ('/staff-members',          [StaffMemberController::class, 'index']);
+    Route::post  ('/staff-members',          [StaffMemberController::class, 'store']);
+    Route::get   ('/staff-members/{staffMember}', [StaffMemberController::class, 'show']);
+    Route::put   ('/staff-members/{staffMember}', [StaffMemberController::class, 'update']);
+    Route::patch ('/staff-members/{staffMember}', [StaffMemberController::class, 'update']); // for quick toggles
+    Route::delete('/staff-members/{staffMember}', [StaffMemberController::class, 'destroy']);
+
+    // Reviews
+    Route::get   ('/reviews',          [ReviewController::class, 'index']);
+    Route::post  ('/reviews',          [ReviewController::class, 'store']);
+    Route::get   ('/reviews/{review}', [ReviewController::class, 'show']);
+    Route::put   ('/reviews/{review}', [ReviewController::class, 'update']);
+    Route::patch ('/reviews/{review}', [ReviewController::class, 'update']); // for quick status/featured toggles
+    Route::delete('/reviews/{review}', [ReviewController::class, 'destroy']);
 });
 Route::post('/admin/mpesa/callback', [MpesaController::class, 'callback']);
