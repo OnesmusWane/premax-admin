@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Role;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -27,6 +28,7 @@ class AdminUserSeeder extends Seeder
             'name'       => 'James Mwangi',
             'email'      => 'admin@premaxautocare.co.ke',
             'password'   => Hash::make('Premax@2024!'),
+            'role'       => 'super_admin',
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -53,12 +55,20 @@ class AdminUserSeeder extends Seeder
             'created_at'       => $now,
             'updated_at'       => $now,
         ]);
+
+        if ($roleId = Role::query()->where('slug', 'super_admin')->value('id')) {
+            DB::table('role_user')->updateOrInsert([
+                'role_id' => $roleId,
+                'user_id' => $userId,
+            ]);
+        }
  
         // 4. Second user — staff
         $staffId = DB::table('users')->insertGetId([
             'name'       => 'Grace Akinyi',
             'email'      => 'grace@premaxautocare.co.ke',
             'password'   => Hash::make('Staff@2024!'),
+            'role'       => 'receptionist',
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -83,13 +93,20 @@ class AdminUserSeeder extends Seeder
             'created_at'       => $now,
             'updated_at'       => $now,
         ]);
+
+        if ($roleId = Role::query()->where('slug', 'receptionist')->value('id')) {
+            DB::table('role_user')->updateOrInsert([
+                'role_id' => $roleId,
+                'user_id' => $staffId,
+            ]);
+        }
  
         $this->command->info('✓ Admin users + employee records seeded.');
         $this->command->table(
             ['Name', 'Email', 'Role', 'Password'],
             [
                 ['James Mwangi', 'admin@premaxautocare.co.ke', 'super_admin', 'Premax@2024!'],
-                ['Grace Akinyi', 'grace@premaxautocare.co.ke', 'staff',       'Staff@2024!'],
+                ['Grace Akinyi', 'grace@premaxautocare.co.ke', 'receptionist','Staff@2024!'],
             ]
         );
     

@@ -110,10 +110,22 @@
                     class="text-[9px] font-bold bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded-full">You</span>
                 </div>
                 <div class="text-[10px] text-gray-500">{{ user.email }}</div>
-                <div class="text-[10px] text-gray-400 capitalize mt-0.5">{{ user.role ?? 'staff' }}</div>
+                <div class="flex items-center gap-1.5 flex-wrap mt-1">
+                  <span v-for="role in user.roles" :key="role.id"
+                    class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">
+                    {{ role.name }}
+                  </span>
+                </div>
+                <div class="text-[10px] text-gray-400 mt-1">
+                  {{ user.direct_permissions?.length ?? 0 }} direct permission{{ (user.direct_permissions?.length ?? 0) !== 1 ? 's' : '' }}
+                </div>
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
+              <span :class="['text-[10px] font-bold px-2 py-0.5 rounded-full',
+                user.two_factor_enabled ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700']">
+                {{ user.two_factor_enabled ? '2FA Ready' : '2FA Pending' }}
+              </span>
               <span :class="['text-[10px] font-bold px-2 py-0.5 rounded-full',
                 user.is_active !== false ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500']">
                 {{ user.is_active !== false ? 'Active' : 'Inactive' }}
@@ -357,26 +369,26 @@
     ══════════════════════════════════════════════════ -->
     <div v-if="activeTab === 'system'" class="mx-4 md:mx-6 space-y-4">
       <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 space-y-4">
-        <h3 class="text-sm font-bold text-gray-900">M-Pesa / Daraja API</h3>
+        <h3 class="text-sm font-bold text-gray-900">KopoKopo Mobile Money</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-600">Paybill / Till Number</label>
-            <input v-model="settings.mpesa_paybill" class="input-base font-mono" placeholder="247247">
+            <label class="text-xs font-semibold text-gray-600">Till Number</label>
+            <input v-model="settings.kopokopo_till_number" class="input-base font-mono" placeholder="K000000">
           </div>
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-gray-600">Environment</label>
-            <select v-model="settings.mpesa_env" class="input-base">
+            <select v-model="settings.kopokopo_environment" class="input-base">
               <option value="sandbox">Sandbox (Testing)</option>
               <option value="production">Production (Live)</option>
             </select>
           </div>
           <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-600">Consumer Key</label>
-            <input v-model="settings.mpesa_consumer_key" class="input-base font-mono" placeholder="Daraja consumer key">
+            <label class="text-xs font-semibold text-gray-600">Client ID</label>
+            <input v-model="settings.kopokopo_client_id" class="input-base font-mono" placeholder="KopoKopo client id">
           </div>
           <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-600">Consumer Secret</label>
-            <input v-model="settings.mpesa_consumer_secret" type="password" class="input-base font-mono" placeholder="Daraja consumer secret">
+            <label class="text-xs font-semibold text-gray-600">Client Secret</label>
+            <input v-model="settings.kopokopo_client_secret" type="password" class="input-base font-mono" placeholder="KopoKopo client secret">
           </div>
         </div>
       </div>
@@ -557,13 +569,12 @@
             <label class="text-xs font-semibold text-gray-600">Email <span class="text-red-500">*</span></label>
             <input v-model="userForm.email" type="email" required class="input-base" placeholder="jane@premaxautocare.co.ke">
           </div>
-          <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-600">Role</label>
-            <select v-model="userForm.role" class="input-base">
-              <option value="staff">Staff</option>
-              <option value="manager">Manager</option>
-              <option value="super_admin">Super Admin</option>
-            </select>
+          <div class="flex items-center gap-3 sm:col-span-2">
+            <button type="button" @click="userForm.is_active = !userForm.is_active"
+              :class="['relative inline-flex h-5 w-9 items-center rounded-full transition-colors', userForm.is_active ? 'bg-red-600' : 'bg-gray-200']">
+              <span :class="['inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow', userForm.is_active ? 'translate-x-4' : 'translate-x-1']" />
+            </button>
+            <label class="text-xs font-semibold text-gray-600">Account Active</label>
           </div>
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-gray-600">
@@ -578,15 +589,73 @@
             <input v-model="userForm.password_confirmation" type="password" class="input-base" placeholder="Repeat password">
           </div>
         </div>
+
+        <div class="space-y-3">
+          <div class="text-xs font-semibold text-gray-600">Assigned Roles <span class="text-red-500">*</span></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label v-for="role in rolesCatalog" :key="role.id"
+              class="border rounded-2xl p-3 cursor-pointer transition-colors"
+              :class="userForm.role_ids.includes(role.id) ? 'border-red-300 bg-red-50' : 'border-gray-200 hover:border-gray-300'">
+              <div class="flex items-start gap-3">
+                <input type="checkbox" :checked="userForm.role_ids.includes(role.id)"
+                  @change="toggleRole(role.id)" class="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500">
+                <div>
+                  <div class="text-xs font-bold text-gray-900">{{ role.name }}</div>
+                  <div class="text-[11px] text-gray-500 mt-1">{{ role.description }}</div>
+                </div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <div class="text-xs font-semibold text-gray-600">Direct Permissions</div>
+            <div class="text-[11px] text-gray-400 mt-1">Use direct permissions to grant exceptions across roles for this specific user.</div>
+          </div>
+          <div class="space-y-3 max-h-72 overflow-y-auto pr-1">
+            <div v-for="group in permissionGroups" :key="group.name" class="border border-gray-100 rounded-2xl p-3">
+              <div class="text-xs font-bold text-gray-900 mb-2">{{ group.name }}</div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label v-for="permission in group.items" :key="permission.id"
+                  class="flex items-start gap-2 rounded-xl px-2 py-2 hover:bg-gray-50">
+                  <input type="checkbox" :checked="userForm.permission_ids.includes(permission.id)"
+                    @change="togglePermission(permission.id)" class="mt-0.5 rounded border-gray-300 text-red-600 focus:ring-red-500">
+                  <div>
+                    <div class="text-xs font-semibold text-gray-700">{{ permission.name }}</div>
+                    <div class="text-[10px] text-gray-400">{{ permission.description }}</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="editingUser" class="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3 text-xs text-gray-600">
+          <div><span class="font-semibold text-gray-800">2FA status:</span> {{ editingUser.two_factor_enabled ? 'Configured' : 'Pending setup on next sign-in' }}</div>
+          <div class="mt-1"><span class="font-semibold text-gray-800">Effective permissions:</span> {{ editingUser.permission_slugs?.length ?? 0 }}</div>
+        </div>
         <div v-if="userFormError" class="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{{ userFormError }}</div>
       </form>
       <template #footer>
-        <div class="flex justify-end gap-2">
+        <div class="flex justify-between items-center w-full">
+          <div class="flex items-center gap-3">
+            <button v-if="editingUser" @click="sendUserPasswordReset(editingUser)"
+              class="text-xs font-semibold text-blue-700 hover:underline">
+              Send Password Reset Link
+            </button>
+            <button v-if="editingUser && editingUser.two_factor_enabled" @click="resetUserTwoFactor(editingUser)"
+              class="text-xs font-semibold text-amber-700 hover:underline">
+              Reset 2FA
+            </button>
+          </div>
+          <div class="flex justify-end gap-2">
           <button @click="showUserForm = false" class="px-4 py-2 text-xs font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
           <button @click="saveUser" :disabled="savingUser"
             class="px-4 py-2 text-xs font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-60">
             {{ savingUser ? 'Saving…' : editingUser ? 'Save Changes' : 'Add User' }}
           </button>
+          </div>
         </div>
       </template>
     </Modal>
@@ -623,6 +692,17 @@
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-gray-600">Price To (KES) <span class="text-gray-400 font-normal">(leave blank for fixed)</span></label>
             <input v-model.number="serviceForm.price_to" type="number" min="0" class="input-base" placeholder="Optional">
+          </div>
+          <div class="flex items-center gap-3 sm:col-span-2">
+            <button type="button" @click="serviceForm.requires_deposit = !serviceForm.requires_deposit"
+              :class="['relative inline-flex h-5 w-9 items-center rounded-full transition-colors', serviceForm.requires_deposit ? 'bg-amber-500' : 'bg-gray-200']">
+              <span :class="['inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow', serviceForm.requires_deposit ? 'translate-x-4' : 'translate-x-1']" />
+            </button>
+            <label class="text-xs font-semibold text-gray-600">Require Booking Deposit</label>
+          </div>
+          <div v-if="serviceForm.requires_deposit" class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Deposit Percentage</label>
+            <input v-model.number="serviceForm.deposit_percent" type="number" min="1" max="100" class="input-base" placeholder="30">
           </div>
           <div class="flex items-center gap-3 sm:col-span-2">
             <button type="button" @click="serviceForm.is_popular = !serviceForm.is_popular"
@@ -871,7 +951,10 @@ watch(activeTab, tab => {
     profileForm.value = { name: auth.user?.name ?? '', email: auth.user?.email ?? '', current_password:'', new_password:'', new_password_confirmation:'' }
     profileError.value = null; profileSuccess.value = false
   }
-  if (tab === 'users'   && !users.value.length)        loadUsers()
+  if (tab === 'users') {
+    if (!users.value.length) loadUsers()
+    if (!rolesCatalog.value.length || !permissionsCatalog.value.length) loadUserMeta()
+  }
   if (tab === 'staff'   && !staffMembers.value.length) loadStaff()
   if (tab === 'reviews' && !reviews.value.length)      loadReviews()
 })
@@ -903,23 +986,80 @@ const showUserForm  = ref(false)
 const savingUser    = ref(false)
 const editingUser   = ref(null)
 const userFormError = ref(null)
-const userForm      = ref({ name:'', email:'', role:'staff', password:'', password_confirmation:'' })
+const rolesCatalog  = ref([])
+const permissionsCatalog = ref([])
+const userForm      = ref({ name:'', email:'', is_active:true, role_ids:[], permission_ids:[], password:'', password_confirmation:'' })
 
 const initials    = name => name?.split(' ').slice(0,2).map(w => w[0]?.toUpperCase()).join('') ?? '?'
 const colors      = ['#EF4444','#3B82F6','#22C55E','#A855F7','#F97316','#EC4899','#14B8A6','#EAB308']
 const avatarColor = name => colors[(name?.charCodeAt(0) ?? 0) % colors.length]
+const permissionGroups = computed(() => {
+  const groups = new Map()
+  for (const permission of permissionsCatalog.value) {
+    const group = permission.group_name || 'Other'
+    if (!groups.has(group)) groups.set(group, [])
+    groups.get(group).push(permission)
+  }
+  return Array.from(groups.entries()).map(([name, items]) => ({ name, items }))
+})
 
 async function loadUsers() {
   loadingUsers.value = true
   try { users.value = await get('/admin/users') ?? [] } catch {}
   finally { loadingUsers.value = false }
 }
-function openAddUser() { editingUser.value=null; userForm.value={name:'',email:'',role:'staff',password:'',password_confirmation:''}; userFormError.value=null; showUserForm.value=true }
-function openEditUser(u) { editingUser.value=u; userForm.value={name:u.name,email:u.email,role:u.role??'staff',password:'',password_confirmation:''}; userFormError.value=null; showUserForm.value=true }
+async function loadUserMeta() {
+  try {
+    const meta = await get('/admin/users/meta')
+    rolesCatalog.value = meta?.roles ?? []
+    permissionsCatalog.value = meta?.permissions ?? []
+  } catch {}
+}
+function openAddUser() {
+  editingUser.value = null
+  userForm.value = { name:'', email:'', is_active:true, role_ids:[], permission_ids:[], password:'', password_confirmation:'' }
+  userFormError.value = null
+  showUserForm.value = true
+}
+function openEditUser(u) {
+  editingUser.value = u
+  userForm.value = {
+    name: u.name,
+    email: u.email,
+    is_active: u.is_active !== false,
+    role_ids: u.roles?.map(role => role.id) ?? [],
+    permission_ids: u.direct_permissions?.map(permission => permission.id) ?? [],
+    password: '',
+    password_confirmation: '',
+  }
+  userFormError.value = null
+  showUserForm.value = true
+}
+function toggleRole(roleId) {
+  userForm.value.role_ids = userForm.value.role_ids.includes(roleId)
+    ? userForm.value.role_ids.filter(id => id !== roleId)
+    : [...userForm.value.role_ids, roleId]
+}
+function togglePermission(permissionId) {
+  userForm.value.permission_ids = userForm.value.permission_ids.includes(permissionId)
+    ? userForm.value.permission_ids.filter(id => id !== permissionId)
+    : [...userForm.value.permission_ids, permissionId]
+}
 async function saveUser() {
   savingUser.value=true; userFormError.value=null
   try {
-    const p={name:userForm.value.name,email:userForm.value.email,role:userForm.value.role}
+    if (!userForm.value.role_ids.length) {
+      userFormError.value = 'Please assign at least one role.'
+      savingUser.value = false
+      return
+    }
+    const p={
+      name:userForm.value.name,
+      email:userForm.value.email,
+      is_active:userForm.value.is_active,
+      role_ids:userForm.value.role_ids,
+      permission_ids:userForm.value.permission_ids,
+    }
     if (userForm.value.password) {
       if (userForm.value.password!==userForm.value.password_confirmation) { userFormError.value='Passwords do not match.'; savingUser.value=false; return }
       p.password=userForm.value.password; p.password_confirmation=userForm.value.password_confirmation
@@ -933,6 +1073,24 @@ async function saveUser() {
 async function toggleUserActive(user) {
   try { await patch(`/admin/users/${user.id}`,{is_active:!user.is_active}); user.is_active=!user.is_active; toast.success(user.is_active?'User activated.':'User deactivated.') }
   catch { toast.error('Failed to update user.') }
+}
+async function resetUserTwoFactor(user) {
+  try {
+    await post(`/admin/users/${user.id}/reset-2fa`)
+    user.two_factor_enabled = false
+    if (editingUser.value?.id === user.id) editingUser.value.two_factor_enabled = false
+    toast.success('2FA reset. The user must set it up again on next login.')
+  } catch (e) {
+    userFormError.value = e.response?.data?.message ?? 'Failed to reset 2FA.'
+  }
+}
+async function sendUserPasswordReset(user) {
+  try {
+    await post(`/admin/users/${user.id}/send-password-reset`)
+    toast.success('Password reset link sent to the user email.')
+  } catch (e) {
+    userFormError.value = e.response?.data?.message ?? 'Failed to send password reset link.'
+  }
 }
 
 // ── Contact ────────────────────────────────────────────────────────────────────
@@ -951,7 +1109,7 @@ const socialFields = [
 function toggleDayClosed(day) { businessHours.value[day].closed = !businessHours.value[day].closed }
 
 // ── System settings ────────────────────────────────────────────────────────────
-const settings = ref({ mpesa_paybill:'',mpesa_env:'sandbox',mpesa_consumer_key:'',mpesa_consumer_secret:'',default_vat:16,invoice_prefix:'INV' })
+const settings = ref({ kopokopo_till_number:'',kopokopo_environment:'sandbox',kopokopo_client_id:'',kopokopo_client_secret:'',default_vat:16,invoice_prefix:'INV' })
 
 // ── Services ───────────────────────────────────────────────────────────────────
 const categories  = ref([])
@@ -961,7 +1119,7 @@ const showServiceForm   = ref(false); const showCategoryForm  = ref(false)
 const savingService     = ref(false); const savingCategory    = ref(false)
 const editingService    = ref(null);  const editingCategory   = ref(null)
 const serviceFormError  = ref(null);  const categoryFormError = ref(null)
-const serviceForm  = ref({name:'',description:'',service_category_id:'',price_from:null,price_to:null,duration_minutes:null,is_popular:false,is_active:true})
+const serviceForm  = ref({name:'',description:'',service_category_id:'',price_from:null,price_to:null,duration_minutes:null,requires_deposit:false,deposit_percent:null,is_popular:false,is_active:true})
 const categoryForm = ref({name:'',description:'',color:'#DC2626'})
 const servicesInCategory = id => allServices.value.filter(s => s.service_category_id === id)
 const formatDuration     = m => m >= 60 ? `${Math.floor(m/60)}h${m%60?' '+m%60+'m':''}` : `${m}m`
@@ -1167,8 +1325,8 @@ async function saveAll() {
 }
 
 // ── Service CRUD ───────────────────────────────────────────────────────────────
-function openAddService(cat) { editingService.value=null; serviceForm.value={name:'',description:'',service_category_id:cat?.id??'',price_from:null,price_to:null,duration_minutes:null,is_popular:false,is_active:true}; serviceFormError.value=null; showServiceForm.value=true }
-function openEditService(svc) { editingService.value=svc; serviceForm.value={name:svc.name,description:svc.description??'',service_category_id:svc.service_category_id,price_from:svc.price_from,price_to:svc.price_to,duration_minutes:svc.duration_minutes,is_popular:svc.is_popular,is_active:svc.is_active}; serviceFormError.value=null; showServiceForm.value=true }
+function openAddService(cat) { editingService.value=null; serviceForm.value={name:'',description:'',service_category_id:cat?.id??'',price_from:null,price_to:null,duration_minutes:null,requires_deposit:false,deposit_percent:null,is_popular:false,is_active:true}; serviceFormError.value=null; showServiceForm.value=true }
+function openEditService(svc) { editingService.value=svc; serviceForm.value={name:svc.name,description:svc.description??'',service_category_id:svc.service_category_id,price_from:svc.price_from,price_to:svc.price_to,duration_minutes:svc.duration_minutes,requires_deposit:svc.requires_deposit,deposit_percent:svc.deposit_percent,is_popular:svc.is_popular,is_active:svc.is_active}; serviceFormError.value=null; showServiceForm.value=true }
 async function saveService() {
   savingService.value=true; serviceFormError.value=null
   try {
@@ -1194,5 +1352,5 @@ async function saveCategory() {
   finally { savingCategory.value=false }
 }
 
-onMounted(() => { loadContact(); loadSettings(); loadServices() })
+onMounted(() => { loadContact(); loadSettings(); loadServices(); loadUserMeta() })
 </script>

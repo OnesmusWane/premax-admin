@@ -152,12 +152,21 @@
           <!-- Invoice/Payment -->
           <div>
             <div class="text-[10px] text-gray-400 uppercase font-semibold mb-1">Payment</div>
-            <div v-if="b.invoice" class="space-y-0.5">
-              <div class="text-xs font-bold text-gray-900">{{ b.invoice.invoice_number }}</div>
-              <div class="text-xs text-green-700 font-semibold">KES {{ b.invoice.total?.toLocaleString() }}</div>
-              <div class="text-[10px] text-gray-500 capitalize">{{ b.invoice.payment_method }}</div>
+            <div class="space-y-1">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span :class="paymentStatusBadge(b.payment_summary?.status)">
+                  {{ paymentStatusLabel(b.payment_summary?.status) }}
+                </span>
+                <span v-if="b.deposit?.required" :class="['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+                  b.deposit?.is_paid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700']">
+                  Deposit {{ b.deposit?.is_paid ? 'Paid' : 'Pending' }}
+                </span>
+              </div>
+              <div v-if="b.invoices?.length" class="text-xs font-bold text-gray-900">
+                KES {{ b.payment_summary?.paid_total?.toLocaleString() ?? 0 }}
+              </div>
+              <div v-else class="text-xs text-gray-400 italic">No payment</div>
             </div>
-            <div v-else class="text-xs text-gray-400 italic">No payment</div>
           </div>
 
           <!-- Checklist -->
@@ -191,7 +200,7 @@
         </div>
 
         <!-- Notes if any -->
-        <div v-if="b.notes" class="px-5 pb-3.5">
+          <div v-if="b.notes" class="px-5 pb-3.5">
           <div class="text-[10px] text-gray-400 uppercase font-semibold mb-1">Notes</div>
           <div class="text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">{{ b.notes }}</div>
         </div>
@@ -247,7 +256,7 @@
           </div>
           <div>
             <div class="text-[10px] text-gray-400 uppercase font-semibold mb-0.5">Checked In By</div>
-            <div class="font-bold text-gray-900">{{ cl.checked_in_by?.name ?? '—' }}</div>
+            <div class="font-bold text-gray-900">{{ cl.checked_in_by?.name ?? cl.checkedInBy?.name ?? '—' }}</div>
           </div>
           <div>
             <div class="text-[10px] text-gray-400 uppercase font-semibold mb-0.5">Checked Out</div>
@@ -435,7 +444,7 @@ const regParts = computed(() => {
 
 const totalBookings   = computed(() => history.value.length)
 const totalChecklists = computed(() => checklists.value.length)
-const totalSpent      = computed(() => history.value.reduce((s, b) => s + (b.invoice?.total ?? 0), 0))
+const totalSpent      = computed(() => history.value.reduce((s, b) => s + (b.payment_summary?.paid_total ?? 0), 0))
 
 const tabs = computed(() => [
   { key: 'overview',    label: 'Overview' },
@@ -474,6 +483,9 @@ function getFlaggedItems(cl) {
   }
   return flagged
 }
+const paymentStatusLabel = status => ({ unpaid:'Unpaid', partial:'Partial', paid:'Paid' }[status] ?? 'Unpaid')
+const paymentStatusBadge = status => ['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+  status === 'paid' ? 'bg-green-100 text-green-700' : status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600']
 
 // ── API ────────────────────────────────────────────────────────────────────────
 async function loadVehicle() {

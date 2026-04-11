@@ -103,7 +103,7 @@ class CustomerController extends Controller
     public function serviceHistory(Customer $customer)
     {
         $bookings = $customer->bookings()
-            ->with(['service', 'status', 'vehicle', 'invoices'])
+            ->with(['service', 'status', 'source', 'vehicle', 'checklist', 'invoices'])
             ->latest('scheduled_at')
             ->get()
             ->map(fn($b) => [
@@ -111,18 +111,39 @@ class CustomerController extends Controller
                 'reference'    => $b->reference,
                 'scheduled_at' => $b->scheduled_at?->toISOString(),
                 'notes'        => $b->customer_notes,
+                'source'       => $b->source?->name,
                 'vehicle'      => ['id' => $b->vehicle?->id, 'registration' => $b->vehicle?->registration],
                 'service'      => ['id' => $b->service?->id, 'name' => $b->service?->name ?? '—'],
                 'status'       => ['slug' => $b->status?->slug ?? 'pending', 'name' => $b->status?->name ?? 'Pending'],
+                'checklist'    => $b->checklist ? [
+                    'id'             => $b->checklist->id,
+                    'sn'             => $b->checklist->sn,
+                    'status'         => $b->checklist->status,
+                    'checked_in_at'  => $b->checklist->checked_in_at?->toISOString(),
+                    'checked_out_at' => $b->checklist->checked_out_at?->toISOString(),
+                ] : null,
                 'invoices'     => $b->invoices->map(fn($i) => [
                     'id'             => $i->id,
                     'invoice_number' => $i->invoice_number,
                     'total'          => $i->total,
+                    'sale_type'      => $i->sale_type,
                     'payment_method' => $i->payment_method,
                     'mpesa_reference'=> $i->mpesa_reference,
                     'status'         => $i->status,
                     'paid_at'        => $i->paid_at?->toISOString(),
                 ]),
+                'deposit' => [
+                    'required' => (bool) $b->requires_deposit,
+                    'percent'  => $b->deposit_percent,
+                    'required_amount' => $b->deposit_required_amount,
+                    'paid_amount' => $b->deposit_paid_amount,
+                    'outstanding_amount' => max(0, (int) $b->deposit_required_amount - (int) $b->deposit_paid_amount),
+                    'is_paid' => $b->deposit_required_amount > 0 && $b->deposit_paid_amount >= $b->deposit_required_amount,
+                ],
+                'payment_summary' => [
+                    'paid_total' => (int) $b->invoices->where('status', 'paid')->sum('total'),
+                    'status' => $b->invoices->where('status', 'paid')->sum('total') <= 0 ? 'unpaid' : (($b->requires_deposit && $b->deposit_required_amount > 0 && $b->deposit_paid_amount < $b->deposit_required_amount) ? 'partial' : 'paid'),
+                ],
             ]);
 
         return response()->json($bookings);

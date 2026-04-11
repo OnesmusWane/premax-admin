@@ -70,6 +70,7 @@
               <div v-if="inv.booking_reference" class="text-[10px] text-red-500 font-semibold mt-0.5">
                 {{ inv.booking_reference }}
               </div>
+              <div v-else class="text-[10px] text-gray-400 mt-0.5 capitalize">{{ inv.sale_type?.replace('_', ' ') }}</div>
             </td>
             <td class="px-4 py-3.5">
               <div class="text-xs font-semibold text-gray-900">{{ inv.customer_name }}</div>
@@ -82,9 +83,10 @@
               <div class="flex items-center gap-1.5">
                 <span :class="['inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full capitalize',
                   methodBadge(inv.payment_method).class]">
-                  {{ inv.payment_method }}
+                  {{ inv.payment_method === 'mpesa' ? 'M-Pesa' : inv.payment_method }}
                 </span>
               </div>
+              <div v-if="inv.payment_provider" class="text-[10px] text-gray-400 mt-0.5 uppercase">{{ inv.payment_provider }}</div>
               <div v-if="inv.mpesa_reference" class="text-[10px] text-gray-400 font-mono mt-0.5">{{ inv.mpesa_reference }}</div>
             </td>
             <td class="px-4 py-3.5 text-xs text-gray-500">{{ fmtDate(inv.paid_at ?? inv.created_at) }}</td>
@@ -186,13 +188,14 @@
               <RouterLink :to="`/bookings`"
                 class="text-[10px] font-bold text-blue-600 hover:underline">View Booking →</RouterLink>
             </div>
-            <div v-else class="flex items-center justify-between">
+            <div v-else-if="selected.sale_type !== 'booking_deposit'" class="flex items-center justify-between">
               <span class="text-xs text-gray-400 italic">No booking linked</span>
               <button @click="showLinkBooking = true"
                 class="text-[10px] font-bold text-red-600 border border-red-200 rounded-lg px-2 py-1 hover:bg-red-50">
                 + Link Booking
               </button>
             </div>
+            <div v-else class="text-xs text-gray-400 italic">Deposit invoice linked automatically during booking creation.</div>
           </div>
         </div>
 

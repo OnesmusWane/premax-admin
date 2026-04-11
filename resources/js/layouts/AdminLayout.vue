@@ -35,7 +35,7 @@
         <div class="flex items-center gap-3">
 
           <!-- Add Booking button -->
-          <button @click="showBookingModal = true"
+          <button v-if="showQuickBooking" @click="showBookingModal = true"
             class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
             <PlusIcon class="w-4 h-4" />
             <span class="hidden sm:inline">Add Booking</span>
@@ -250,7 +250,7 @@ import {
   XMarkIcon, Bars3Icon, ChevronDownIcon,
   UserCircleIcon, PencilSquareIcon, ArrowRightOnRectangleIcon,
   Squares2X2Icon, CalendarDaysIcon, UserGroupIcon,
-  TruckIcon, ShoppingCartIcon, CubeIcon, CreditCardIcon, CogIcon,
+  TruckIcon, ShoppingCartIcon, CubeIcon, CreditCardIcon, CogIcon, ChatBubbleLeftIcon, PhotoIcon
 } from '@heroicons/vue/24/outline'
 import NavItem           from '@/components/NavItem.vue'
 import QuickBookingModal from '@/components/QuickBookingModal.vue'
@@ -283,39 +283,47 @@ const userInitials = computed(() => {
 })
 
 const pageTitle = computed(() => {
-  const map = { dashboard:'Dashboard', bookings:'Bookings', customers:'Customers', vehicles:'Vehicles', pos:'Point of Sale', inventory:'Inventory', payments:'Payments', reports:'Reports', settings:'Settings' }
+  const map = { dashboard:'Dashboard', bookings:'Bookings', customers:'Customers', vehicles:'Vehicles', pos:'Point of Sale', inventory:'Inventory', payments:'Payments', gallery:'Gallery', reports:'Reports', settings:'Settings', feedback:'Feedback' }
   return map[route.path.split('/')[1]] ?? 'Premax Admin'
 })
 
 // ── Nav items ──────────────────────────────────────────────────────────────────
-const navItems = [
-  { label:'Dashboard', to:'/dashboard', icon:Squares2X2Icon },
-  { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon },
-  { label:'Customers', to:'/customers', icon:UserGroupIcon },
-  { label:'Vehicles',  to:'/vehicles',  icon:TruckIcon },
-  { label:'POS',       to:'/pos',       icon:ShoppingCartIcon },
-  { label:'Inventory', to:'/inventory', icon:CubeIcon },
-  { label:'Payments',  to:'/payments',  icon:CreditCardIcon },
-  { label:'Settings',  to:'/settings',  icon:CogIcon },
+const allNavItems = [
+  { label:'Dashboard', to:'/dashboard', icon:Squares2X2Icon, permission:'dashboard.view' },
+  { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon, permission:'bookings.manage' },
+  { label:'Customers', to:'/customers', icon:UserGroupIcon, permission:'customers.manage' },
+  { label:'Vehicles',  to:'/vehicles',  icon:TruckIcon, permission:'vehicles.manage' },
+  { label:'POS',       to:'/pos',       icon:ShoppingCartIcon, permission:'pos.manage' },
+  { label:'Inventory', to:'/inventory', icon:CubeIcon, permission:'inventory.manage' },
+  { label:'Payments',  to:'/payments',  icon:CreditCardIcon, permission:'payments.manage' },
+  { label:'Gallery',   to:'/gallery',   icon:PhotoIcon, permission:'gallery.manage' },
+  { label:'Feedback',  to:'/feedback',  icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
+  { label:'Settings',  to:'/settings',  icon:CogIcon, permission:'settings.manage' },
 ]
 
-const mobileNavItems = [
-  { label:'Dashboard', to:'/dashboard', icon:Squares2X2Icon },
-  { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon },
-  { label:'Customers', to:'/customers', icon:UserGroupIcon },
-  { label:'POS',       to:'/pos',       icon:ShoppingCartIcon },
-]
+const navItems = computed(() => allNavItems.filter(item => auth.hasPermission(item.permission)))
 
-const moreNavItems = [
-  { label:'Vehicles',  to:'/vehicles',  icon:TruckIcon },
-  { label:'Inventory', to:'/inventory', icon:CubeIcon },
-  { label:'Payments',  to:'/payments',  icon:CreditCardIcon },
-  { label:'Settings',  to:'/settings',  icon:CogIcon },
-]
+const mobileNavItems = computed(() => [
+  { label:'Dashboard', to:'/dashboard', icon:Squares2X2Icon, permission:'dashboard.view' },
+  { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon, permission:'bookings.manage' },
+  { label:'Customers', to:'/customers', icon:UserGroupIcon, permission:'customers.manage' },
+  { label:'POS',       to:'/pos',       icon:ShoppingCartIcon, permission:'pos.manage' },
+].filter(item => auth.hasPermission(item.permission)))
+
+const moreNavItems = computed(() => [
+  { label:'Vehicles',  to:'/vehicles',  icon:TruckIcon, permission:'vehicles.manage' },
+  { label:'Inventory', to:'/inventory', icon:CubeIcon, permission:'inventory.manage' },
+  { label:'Payments',  to:'/payments',  icon:CreditCardIcon, permission:'payments.manage' },
+  { label:'Gallery',   to:'/gallery',   icon:PhotoIcon, permission:'gallery.manage' },
+  { label:'Feedback',  to:'/feedback',  icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
+  { label:'Settings',  to:'/settings',  icon:CogIcon, permission:'settings.manage' },
+].filter(item => auth.hasPermission(item.permission)))
+
+const showQuickBooking = computed(() => auth.hasPermission('bookings.manage'))
 
 const isActive     = to => route.path.startsWith(to)
-const moreRoutes   = moreNavItems.map(i => i.to)
-const isMoreActive = computed(() => moreRoutes.some(r => route.path.startsWith(r)))
+const moreRoutes   = computed(() => moreNavItems.value.map(i => i.to))
+const isMoreActive = computed(() => moreRoutes.value.some(r => route.path.startsWith(r)))
 
 // ── Actions ────────────────────────────────────────────────────────────────────
 function goToProfile() {

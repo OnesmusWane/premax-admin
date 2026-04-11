@@ -16,7 +16,7 @@ class ChecklistController extends Controller
      */
     public function index(Request $request)
     {
-        $checklists = VehicleChecklist::with(['vehicle', 'customer'])
+        $checklists = VehicleChecklist::with(['vehicle', 'customer', 'checkedInBy:id,name', 'checkedOutBy:id,name'])
             ->when($request->vehicle_id,  fn($q, $id) => $q->where('vehicle_id',  $id))
             ->when($request->customer_id, fn($q, $id) => $q->where('customer_id', $id))
             ->when($request->job_card_id, fn($q, $id) => $q->where('job_card_id', $id))

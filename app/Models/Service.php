@@ -22,6 +22,8 @@ class Service extends Model
         'price_to',
         'price_is_estimate',
         'duration_minutes',
+        'requires_deposit',
+        'deposit_percent',
         'is_popular',
         'is_active',
         'sort_order',
@@ -29,6 +31,7 @@ class Service extends Model
 
     protected $casts = [
         'price_is_estimate' => 'boolean',
+        'requires_deposit'  => 'boolean',
         'is_popular'        => 'boolean',
         'is_active'         => 'boolean',
     ];

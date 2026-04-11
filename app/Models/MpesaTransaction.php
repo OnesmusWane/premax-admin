@@ -7,18 +7,23 @@ use Illuminate\Database\Eloquent\Model;
 class MpesaTransaction extends Model
 {
     protected $fillable = [
+        'provider',
         'checkout_request_id',
+        'location',
+        'internal_reference',
         'mpesa_receipt_number',
         'phone',
         'amount',
         'status',
         'result_code',
         'result_desc',
+        'callback_payload',
     ];
 
     protected $casts = [
         'amount'      => 'decimal:2',
         'result_code' => 'integer',
+        'callback_payload' => 'array',
     ];
 
     // ── Scopes ────────────────────────────────────────────────────────────

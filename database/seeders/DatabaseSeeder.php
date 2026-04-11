@@ -26,12 +26,15 @@ class DatabaseSeeder extends Seeder
         $this->call([
             BookingStatusesSeeder::class,
             DepartmentsSeeder::class,
+            AccessControlSeeder::class,
             BookingSourcesSeeder::class,
             ServicesSeeder::class,
             ContactInformationSeeder::class,
             LegalPagesSeeder::class,
             ReviewsSeeder::class,
             StaffMembersSeeder::class,
+            AdminUserSeeder::class,
+            AccessControlSeeder::class,
         ]);
     }
 }
