@@ -16,11 +16,11 @@
     </PageHeader>
 
     <!-- ── TOOLBAR ── -->
-    <div class="flex flex-col md:flex-row items-start md:items-center md:justify-between gap-3 px-4 md:px-6">
-      <SearchInput v-model="search" placeholder="Search invoice, customer, ref…" class="flex-1 max-w-xs" />
+    <div class="flex flex-col md:flex-row items-start md:items-center gap-3 px-4 md:px-6">
+      <SearchInput v-model="search" placeholder="Search invoice, customer, ref…" class="w-full md:min-w-[280px] md:max-w-sm md:flex-1" />
 
       <select v-model="statusFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-44 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
         <option value="">All Statuses</option>
         <option value="paid">Paid</option>
         <option value="pending">Pending</option>
@@ -28,7 +28,7 @@
       </select>
 
       <select v-model="methodFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-44 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
         <option value="">All Methods</option>
         <option value="cash">Cash</option>
         <option value="mpesa">M-Pesa</option>
@@ -37,7 +37,7 @@
       </select>
 
       <input type="date" v-model="dateFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-44 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
 
       <button v-if="statusFilter || methodFilter || dateFilter || search" @click="clearFilters"
         class="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 hover:bg-gray-50">

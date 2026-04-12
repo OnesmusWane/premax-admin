@@ -11,7 +11,7 @@
     </PageHeader>
 
     <div class="flex flex-wrap items-center gap-3 px-4 md:px-6">
-      <SearchInput v-model="search" placeholder="Search by name, phone, email..." class="flex-1 max-w-xs" />
+      <SearchInput v-model="search" placeholder="Search by name, phone, email..." class="w-full md:min-w-[280px] md:max-w-sm" />
     </div>
 
     <div class="mx-4 md:mx-6 bg-white rounded-2xl border border-gray-100 shadow-sm  table-wrap">

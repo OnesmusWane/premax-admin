@@ -38,15 +38,15 @@
     </div>
 
     <!-- Toolbar -->
-    <div class="flex flex-col md:flex-row items-start md:items-center md:justify-between gap-3 px-4 md:px-6">
-      <SearchInput v-model="search" placeholder="Search products…" class="flex-1 max-w-xs" />
+    <div class="flex flex-col md:flex-row items-start md:items-center gap-3 px-4 md:px-6">
+      <SearchInput v-model="search" placeholder="Search products…" class="w-full md:min-w-[280px] md:max-w-sm md:flex-1" />
       <select v-model="catFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-56 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
         <option value="">All Categories</option>
         <option v-for="c in categories" :key="c" :value="c" class="capitalize">{{ c }}</option>
       </select>
       <select v-model="statusFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-56 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
         <option value="">All Stock Levels</option>
         <option value="out_of_stock">Out of Stock</option>
         <option value="critical">Critical</option>
