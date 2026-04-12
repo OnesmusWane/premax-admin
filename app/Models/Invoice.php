@@ -12,10 +12,14 @@ class Invoice extends Model
     protected $fillable = [
         'invoice_number',
         'customer_id',
+        'anonymous_customer_name',
         'vehicle_id',
         'booking_id',       // ← add this
+        'sale_type',
         'payment_method',
+        'payment_provider',
         'mpesa_reference',
+        'gateway_reference',
         'card_reference',
         'subtotal',
         'vat_percent',

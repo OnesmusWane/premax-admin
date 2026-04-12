@@ -44,7 +44,7 @@
       <div class="w-full max-w-lg space-y-4 py-4">
         <div class="text-center">
           <h2 class="text-lg font-extrabold text-gray-900">Start a Service</h2>
-          <p class="text-sm text-gray-500 mt-1">Link to a booking or create a walk-in</p>
+          <p class="text-sm text-gray-500 mt-1">Link to a booking, create a walk-in, or start a direct POS sale</p>
         </div>
 
         <!-- Search -->
@@ -89,15 +89,19 @@
         <!-- Walk-in -->
         <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
           <h3 class="text-[10px] font-bold text-gray-700 uppercase tracking-wide">Walk-in / New Booking</h3>
+          <label class="flex items-center gap-2 text-xs font-semibold text-gray-600">
+            <input v-model="walkIn.is_anonymous" type="checkbox" class="rounded border-gray-300 text-red-600 focus:ring-red-500">
+            Save customer anonymously
+          </label>
           <div class="grid grid-cols-2 gap-3">
             <div class="flex flex-col gap-1">
-              <label class="text-[10px] font-semibold text-gray-500 uppercase">Phone *</label>
-              <input v-model="walkIn.phone" class="input-base" placeholder="+254 700 000000" @blur="lookupWalkInCustomer">
+              <label class="text-[10px] font-semibold text-gray-500 uppercase">Phone {{ walkIn.is_anonymous ? '' : '*' }}</label>
+              <input v-model="walkIn.phone" :disabled="walkIn.is_anonymous" class="input-base disabled:bg-gray-50 disabled:text-gray-400" placeholder="+254 700 000000" @blur="lookupWalkInCustomer">
               <p v-if="walkInCustomerFound" class="text-[10px] text-green-600">✓ Customer found</p>
             </div>
             <div class="flex flex-col gap-1">
-              <label class="text-[10px] font-semibold text-gray-500 uppercase">Full Name *</label>
-              <input v-model="walkIn.name" class="input-base" placeholder="John Doe">
+              <label class="text-[10px] font-semibold text-gray-500 uppercase">Full Name {{ walkIn.is_anonymous ? '' : '*' }}</label>
+              <input v-model="walkIn.name" class="input-base" :placeholder="walkIn.is_anonymous ? 'Anonymous Client' : 'John Doe'">
             </div>
             <div class="flex flex-col gap-1">
               <label class="text-[10px] font-semibold text-gray-500 uppercase">Registration *</label>
@@ -118,10 +122,32 @@
           </div>
           <div v-if="walkInError" class="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{{ walkInError }}</div>
           <button @click="createWalkIn"
-            :disabled="creatingWalkIn || !walkIn.phone || !walkIn.name || !walkIn.reg || !walkIn.service_id"
+            :disabled="creatingWalkIn || !walkIn.reg || !walkIn.service_id || (!walkIn.is_anonymous && (!walkIn.phone || !walkIn.name))"
             class="w-full py-3 text-xs font-bold bg-red-600 hover:bg-red-700 text-white rounded-xl disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
             <span v-if="creatingWalkIn" class="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
             {{ creatingWalkIn ? 'Creating…' : 'Start Walk-in Service' }}
+          </button>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+          <h3 class="text-[10px] font-bold text-gray-700 uppercase tracking-wide">Direct POS Sale</h3>
+          <label class="flex items-center gap-2 text-xs font-semibold text-gray-600">
+            <input v-model="directSale.is_anonymous" type="checkbox" class="rounded border-gray-300 text-red-600 focus:ring-red-500">
+            Save customer anonymously
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-semibold text-gray-500 uppercase">Customer Name</label>
+              <input v-model="directSale.name" class="input-base" :placeholder="directSale.is_anonymous ? 'Anonymous POS Client' : 'Walk-in POS Client'">
+            </div>
+            <div class="flex flex-col gap-1">
+              <label class="text-[10px] font-semibold text-gray-500 uppercase">Phone</label>
+              <input v-model="directSale.phone" :disabled="directSale.is_anonymous" class="input-base disabled:bg-gray-50 disabled:text-gray-400" placeholder="+254 700 000000">
+            </div>
+          </div>
+          <button @click="startDirectSale"
+            class="w-full py-3 text-xs font-bold bg-gray-900 hover:bg-gray-700 text-white rounded-xl flex items-center justify-center gap-2 transition-colors">
+            Start Direct Sale
           </button>
         </div>
       </div>
@@ -222,25 +248,58 @@
           'lg:flex lg:flex-1',
           mobileTab === 'services' ? 'flex flex-1' : 'hidden']">
           <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 bg-white shrink-0">
-            <h3 class="text-sm font-bold text-gray-900 hidden sm:block">Services</h3>
-            <input v-model="serviceSearch" placeholder="Search services…"
+            <h3 class="text-sm font-bold text-gray-900 hidden sm:block">Catalog</h3>
+            <input v-model="serviceSearch" placeholder="Search services or stock…"
               class="input-base flex-1 text-xs" />
           </div>
           <div class="flex-1 overflow-y-auto p-3">
-            <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
-              <button v-for="svc in filteredServices" :key="svc.id" @click="addToCart(svc)"
-                :class="['flex flex-col items-center gap-2 bg-white border rounded-2xl p-3 transition-all text-center group',
-                  isInCart(svc.id) ? 'border-red-400 bg-red-50/30' : 'border-gray-200 hover:border-red-400 hover:bg-red-50/30']">
-                <div :class="['w-9 h-9 rounded-xl flex items-center justify-center text-base',
-                  isInCart(svc.id) ? 'bg-red-600 text-white' : 'bg-red-50 text-red-500 group-hover:bg-red-100']">⚙</div>
-                <div>
-                  <div class="text-[11px] font-bold text-gray-900 leading-tight">{{ svc.name }}</div>
-                  <div class="text-[10px] text-gray-500 mt-0.5">KES {{ svc.price_from?.toLocaleString() }}</div>
-                  <div v-if="svc.duration_minutes" class="text-[9px] text-gray-400">~{{ formatDuration(svc.duration_minutes) }}</div>
+            <div class="space-y-5">
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Services</h4>
+                  <span class="text-[10px] text-gray-400">{{ filteredServices.length }}</span>
                 </div>
-              </button>
-              <div v-if="!filteredServices.length" class="col-span-full py-12 text-center text-gray-400 text-xs">
-                No services found.
+                <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                  <button v-for="svc in filteredServices" :key="svc.id" @click="addToCart(svc)"
+                    :class="['flex flex-col items-center gap-2 bg-white border rounded-2xl p-3 transition-all text-center group',
+                      isInCart(`service-${svc.id}`) ? 'border-red-400 bg-red-50/30' : 'border-gray-200 hover:border-red-400 hover:bg-red-50/30']">
+                    <div :class="['w-9 h-9 rounded-xl flex items-center justify-center text-base',
+                      isInCart(`service-${svc.id}`) ? 'bg-red-600 text-white' : 'bg-red-50 text-red-500 group-hover:bg-red-100']">⚙</div>
+                    <div>
+                      <div class="text-[11px] font-bold text-gray-900 leading-tight">{{ svc.name }}</div>
+                      <div class="text-[10px] text-gray-500 mt-0.5">KES {{ svc.price_from?.toLocaleString() }}</div>
+                      <div v-if="svc.duration_minutes" class="text-[9px] text-gray-400">~{{ formatDuration(svc.duration_minutes) }}</div>
+                    </div>
+                  </button>
+                  <div v-if="!filteredServices.length" class="col-span-full py-12 text-center text-gray-400 text-xs">
+                    No services found.
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Inventory Add-ons</h4>
+                  <span class="text-[10px] text-gray-400">{{ filteredInventory.length }}</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                  <button v-for="item in filteredInventory" :key="item.id" @click="addInventoryToCart(item)"
+                    :disabled="item.stock_qty <= 0"
+                    class="text-left bg-white border border-gray-200 hover:border-red-400 rounded-2xl p-3 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <div class="text-[11px] font-bold text-gray-900">{{ item.name }}</div>
+                        <div class="text-[10px] text-gray-400 mt-0.5">{{ item.sku }}</div>
+                      </div>
+                      <span class="text-[10px] font-bold" :class="item.stock_qty > 0 ? 'text-green-600' : 'text-red-500'">
+                        {{ item.stock_qty }} left
+                      </span>
+                    </div>
+                    <div class="text-[10px] text-gray-500 mt-2">KES {{ item.unit_price?.toLocaleString() }}</div>
+                  </button>
+                  <div v-if="!filteredInventory.length" class="col-span-full py-8 text-center text-gray-400 text-xs">
+                    No inventory items found.
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -254,11 +313,11 @@
           <!-- Booking badge -->
           <div class="px-4 py-2.5 bg-gray-900 flex items-center justify-between shrink-0">
             <div>
-              <div class="text-[9px] text-gray-400 uppercase tracking-widest">Booking</div>
+              <div class="text-[9px] text-gray-400 uppercase tracking-widest">{{ activeBooking.is_direct_sale ? 'Sale' : 'Booking' }}</div>
               <div class="text-xs font-mono font-bold text-white">{{ activeBooking.reference }}</div>
             </div>
             <div class="text-right">
-              <div class="text-[9px] text-gray-400">{{ activeBooking.vehicle.registration }}</div>
+              <div class="text-[9px] text-gray-400">{{ activeBooking.is_direct_sale ? 'Direct POS Sale' : activeBooking.vehicle.registration }}</div>
               <div class="text-[9px] text-gray-400">{{ activeBooking.customer.name }}</div>
             </div>
           </div>
@@ -267,13 +326,14 @@
           <div class="flex-1 overflow-y-auto px-3 py-3">
             <div v-if="!cart.length" class="flex flex-col items-center justify-center h-full gap-3 text-gray-300">
               <ShoppingCartIcon class="w-10 h-10" />
-              <p class="text-xs">Select services from the left</p>
+              <p class="text-xs">Select services or inventory from the left</p>
             </div>
             <div v-else class="space-y-2">
               <div v-for="(item, i) in cart" :key="i"
                 class="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 gap-2">
                 <div class="flex-1 min-w-0">
                   <div class="text-xs font-semibold text-gray-900 truncate">{{ item.name }}</div>
+                  <div class="text-[10px] text-gray-400 capitalize">{{ item.line_type }}</div>
                   <div class="flex items-center gap-1 mt-0.5">
                     <span class="text-[10px] text-gray-500">KES</span>
                     <input v-model.number="item.unit_price" type="number" min="0"
@@ -561,11 +621,19 @@ const statusColor = slug => statusColors[slug] ?? '#6B7280'
 
 // ── Services ───────────────────────────────────────────────────────────────────
 const allServices    = ref([])
+const inventoryItems = ref([])
 const serviceSearch  = ref('')
 const filteredServices = computed(() => {
   if (!serviceSearch.value) return allServices.value
   const q = serviceSearch.value.toLowerCase()
   return allServices.value.filter(s => s.name.toLowerCase().includes(q))
+})
+const filteredInventory = computed(() => {
+  if (!serviceSearch.value) return inventoryItems.value
+  const q = serviceSearch.value.toLowerCase()
+  return inventoryItems.value.filter(i =>
+    i.name.toLowerCase().includes(q) || i.sku?.toLowerCase().includes(q)
+  )
 })
 const isInCart       = id => cart.value.some(i => i.id === id)
 const formatDuration = m => m >= 60 ? `${Math.floor(m/60)}h${m%60?' '+m%60+'m':''}` : `${m}m`
@@ -592,23 +660,27 @@ function linkBooking(b) {
   bookingResults.value = []; bookingSearch.value = ''
   currentStep.value    = 'checklist'; completedSteps.value = []
   stkPhone.value       = b.customer?.phone ?? ''
+  cart.value = []
   if (b.service?.id) {
     const match = allServices.value.find(s => s.id === b.service.id)
-    if (match && !isInCart(match.id)) addToCart(match)
+    if (match && !isInCart(`service-${match.id}`)) addToCart(match)
     else if (!match && b.service?.name)
-      cart.value.push({ id: b.service.id, name: b.service.name, unit_price: 0, quantity: 1 })
+      cart.value.push({ id: `service-${b.service.id}`, service_id: b.service.id, line_type:'service', name: b.service.name, unit_price: 0, quantity: 1 })
   }
+  if (b.checklist?.id) activeChecklistId.value = b.checklist.id
   initChecklist()
 }
 
 // ── Walk-in ────────────────────────────────────────────────────────────────────
-const walkIn              = ref({ phone:'', name:'', reg:'', make_model:'', service_id:'' })
+const walkIn              = ref({ is_anonymous:false, phone:'', name:'', reg:'', make_model:'', service_id:'' })
 const walkInError         = ref(null)
 const walkInCustomerFound = ref(false)
 const walkInVehicleFound  = ref('')
 const creatingWalkIn      = ref(false)
+const directSale          = ref({ is_anonymous:true, name:'', phone:'' })
 
 async function lookupWalkInCustomer() {
+  if (walkIn.value.is_anonymous) return
   if (walkIn.value.phone.length < 9) return
   try {
     const data = await get('/admin/customers', { search: walkIn.value.phone })
@@ -637,8 +709,9 @@ async function createWalkIn() {
     const now = new Date(), pad = n => String(n).padStart(2,'0')
     const scheduled = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:00`
     const booking = await post('/admin/bookings', {
-      customer_name:  walkIn.value.name,
-      customer_phone: walkIn.value.phone,
+      is_anonymous:   walkIn.value.is_anonymous,
+      customer_name:  walkIn.value.name || undefined,
+      customer_phone: walkIn.value.phone || undefined,
       vehicle_reg:    walkIn.value.reg.toUpperCase(),
       vehicle_make:   walkIn.value.make_model.split(' ')[0] || undefined,
       vehicle_model:  walkIn.value.make_model.split(' ').slice(1).join(' ') || undefined,
@@ -646,12 +719,41 @@ async function createWalkIn() {
       source:         'walk_in', scheduled_at: scheduled,
     })
     linkBooking(booking)
-    walkIn.value = { phone:'', name:'', reg:'', make_model:'', service_id:'' }
+    walkIn.value = { is_anonymous:false, phone:'', name:'', reg:'', make_model:'', service_id:'' }
     walkInCustomerFound.value = false; walkInVehicleFound.value = ''
     toast.success('Walk-in booking created.')
   } catch (e) {
     walkInError.value = e.response?.data?.message ?? 'Failed to create booking.'
   } finally { creatingWalkIn.value = false }
+}
+
+function startDirectSale() {
+  const reference = `POS-${Date.now()}`
+  const name = directSale.value.is_anonymous
+    ? (directSale.value.name || 'Anonymous POS Client')
+    : (directSale.value.name || 'Walk-in POS Client')
+
+  activeBooking.value = {
+    id: null,
+    reference,
+    is_direct_sale: true,
+    customer: {
+      id: null,
+      name,
+      phone: directSale.value.phone || '',
+      is_anonymous: directSale.value.is_anonymous,
+    },
+    vehicle: {
+      id: null,
+      registration: 'DIRECT SALE',
+      make: '',
+      model: '',
+    },
+    service: { id: null, name: 'Direct Sale' },
+  }
+  currentStep.value = 'checkout'
+  completedSteps.value = ['checklist']
+  stkPhone.value = directSale.value.phone || ''
 }
 
 // ── Checklist ──────────────────────────────────────────────────────────────────
@@ -710,15 +812,33 @@ const vatAmount = computed(() => Math.round((subtotal.value - discount.value) * 
 const total     = computed(() => subtotal.value - discount.value + vatAmount.value)
 
 function addToCart(svc) {
-  const ex = cart.value.find(i => i.id === svc.id)
+  const ex = cart.value.find(i => i.service_id === svc.id)
   if (ex) { ex.quantity++; return }
-  cart.value.push({ id: svc.id, name: svc.name, unit_price: svc.price_from ?? 0, quantity: 1 })
+  cart.value.push({ id: `service-${svc.id}`, service_id: svc.id, line_type: 'service', name: svc.name, unit_price: svc.price_from ?? 0, quantity: 1 })
   // switch to cart tab on mobile after adding
   mobileTab.value = 'cart'
   setTimeout(() => mobileTab.value = 'services', 600)
 }
+function addInventoryToCart(item) {
+  const existing = cart.value.find(i => i.inventory_item_id === item.id)
+  if (existing) {
+    existing.quantity++
+    return
+  }
+  cart.value.push({
+    id: `inventory-${item.id}`,
+    inventory_item_id: item.id,
+    line_type: 'inventory',
+    name: item.name,
+    unit_price: item.unit_price ?? 0,
+    quantity: 1,
+    stock_qty: item.stock_qty,
+  })
+  mobileTab.value = 'cart'
+  setTimeout(() => mobileTab.value = 'services', 600)
+}
 function removeFromCart(i) { cart.value.splice(i, 1) }
-function addCustomItem() { cart.value.push({ id: Date.now(), name: 'Custom Item', unit_price: 0, quantity: 1 }) }
+function addCustomItem() { cart.value.push({ id: `custom-${Date.now()}`, line_type:'custom', name: 'Custom Item', unit_price: 0, quantity: 1 }) }
 
 // ── Payment ────────────────────────────────────────────────────────────────────
 const showPaymentModal  = ref(false)
@@ -765,7 +885,11 @@ async function sendStkPush() {
   saving.value = true; stkStatus.value = ''; stkStatusDesc.value = ''
   try {
     const res = await post('/admin/mpesa/stk-push', {
-      phone: stkPhone.value, amount: total.value, booking_id: activeBooking.value?.id,
+      phone: stkPhone.value,
+      amount: total.value,
+      booking_id: activeBooking.value?.id,
+      reference: activeBooking.value?.reference,
+      customer_name: activeBooking.value?.customer?.name,
     })
     stkSent.value = true
     checkoutRequestId.value = res.checkout_request
@@ -808,9 +932,19 @@ async function confirmCheckout(skipCode = false) {
     const inv = await post('/admin/pos/checkout', {
       customer_id:     activeBooking.value?.customer?.id ?? undefined,
       booking_id:      activeBooking.value?.id           ?? undefined,
+      is_anonymous:    activeBooking.value?.customer?.is_anonymous ?? false,
+      customer_name:   activeBooking.value?.customer?.name ?? undefined,
+      customer_phone:  activeBooking.value?.customer?.phone ?? undefined,
       checklist_id:    activeChecklistId.value           ?? undefined,
       vehicle_reg:     activeBooking.value?.vehicle?.registration ?? undefined,
-      items:           cart.value.map(i => ({ description:i.name, quantity:i.quantity, unit_price:i.unit_price })),
+      items:           cart.value.map(i => ({
+        description:i.name,
+        quantity:i.quantity,
+        unit_price:i.unit_price,
+        line_type:i.line_type,
+        service_id:i.service_id,
+        inventory_item_id:i.inventory_item_id,
+      })),
       payment_method:  pendingMethod.value,
       mpesa_reference: pendingMethod.value === 'mpesa' && !skipCode ? mpesaCode.value : undefined,
       card_reference:  pendingMethod.value === 'card' ? cardRef.value : undefined,
@@ -840,7 +974,8 @@ function resetPOS() {
   paymentNotes.value = ''; amountTendered.value = 0
   stkSent.value = false; bookingSearch.value = ''
   bookingResults.value = []; hasSearched.value = false
-  walkIn.value = { phone:'', name:'', reg:'', make_model:'', service_id:'' }
+  walkIn.value = { is_anonymous:false, phone:'', name:'', reg:'', make_model:'', service_id:'' }
+  directSale.value = { is_anonymous:true, name:'', phone:'' }
   stopPolling(); stkStatus.value = ''; stkStatusDesc.value = ''
   initChecklist()
 }
@@ -848,10 +983,21 @@ function resetPOS() {
 // ── Boot ───────────────────────────────────────────────────────────────────────
 onMounted(async () => {
   allServices.value = await get('/admin/services') ?? []
+  inventoryItems.value = (await get('/admin/inventory', { per_page: 200 }))?.data ?? []
   initChecklist()
   const q = route.query
   if (q.booking_id) {
-    try { const b = await get(`/admin/bookings/${q.booking_id}`); if (b) linkBooking(b) } catch {}
+    try {
+      const b = await get(`/admin/bookings/${q.booking_id}`)
+      if (b) {
+        linkBooking(b)
+        if (q.open_checkout === '1') {
+          completedSteps.value = ['checklist']
+          currentStep.value = 'checkout'
+          mobileTab.value = 'cart'
+        }
+      }
+    } catch {}
   }
 })
 </script>

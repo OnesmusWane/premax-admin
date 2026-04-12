@@ -16,16 +16,22 @@ class Booking extends Model
         'vehicle_id',
         'scheduled_at',
         'customer_id',
+        'anonymous_customer_name',
         'booking_source_id',
         'checklist_id',
         'booking_status_id',
         'cancellation_reason',
         'customer_notes',
         'staff_notes',
+        'requires_deposit',
+        'deposit_percent',
+        'deposit_required_amount',
+        'deposit_paid_amount',
     ];
 
     protected $casts = [
         'scheduled_at'  => 'datetime',
+        'requires_deposit' => 'boolean',
     ];
 
     // ── Relationships ─────────────────────────────────────────────────────

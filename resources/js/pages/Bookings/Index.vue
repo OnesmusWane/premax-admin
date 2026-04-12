@@ -72,7 +72,7 @@
               </span>
             </td>
             <td class="px-4 py-3.5">
-              <div class="flex items-center gap-1.5">
+              <div class="flex flex-wrap items-center gap-1.5">
                 <!-- Checklist badge -->
                 <span v-if="b.checklist" :class="['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
                   b.checklist.status === 'check_out' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
@@ -85,6 +85,13 @@
                   class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
                   <ReceiptPercentIcon class="w-3 h-3" />
                   {{ b.invoices?.length > 1 ? `${b.invoices.length} invoices` : 'Paid' }}
+                </span>
+                <span :class="paymentStatusBadge(b.payment_summary?.status)">
+                  {{ paymentStatusLabel(b.payment_summary?.status) }}
+                </span>
+                <span v-if="b.deposit?.required" :class="['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+                  b.deposit?.is_paid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700']">
+                  Deposit {{ b.deposit?.is_paid ? 'Paid' : 'Pending' }}
                 </span>
               </div>
             </td>
@@ -156,6 +163,32 @@
           </div>
 
           <div class="divide-y divide-gray-100">
+            <div class="px-4 py-3 bg-gray-50/60 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-gray-500">Overall Payment Status</span>
+                <span :class="paymentStatusBadge(selected.payment_summary?.status)">{{ paymentStatusLabel(selected.payment_summary?.status) }}</span>
+              </div>
+              <div v-if="selected.deposit?.required" class="space-y-2">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="text-gray-500">Deposit Progress</span>
+                  <span class="font-semibold text-gray-900">
+                    KES {{ selected.deposit.paid_amount?.toLocaleString() }} / {{ selected.deposit.required_amount?.toLocaleString() }}
+                  </span>
+                </div>
+                <div class="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div class="h-full bg-amber-500 rounded-full transition-all" :style="`width:${depositProgress(selected)}%`" />
+                </div>
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] text-gray-500">
+                    {{ selected.deposit.is_paid ? 'Down payment fully collected.' : `Outstanding: KES ${selected.deposit.outstanding_amount?.toLocaleString()}` }}
+                  </span>
+                  <button v-if="!selected.deposit.is_paid" @click="openDepositModal(selected)"
+                    class="text-[10px] font-bold text-amber-700 border border-amber-300 rounded-lg px-2.5 py-1 hover:bg-amber-50">
+                    Collect Down Payment
+                  </button>
+                </div>
+              </div>
+            </div>
             <!-- Existing invoices -->
             <div v-if="selected.invoices?.length" class="divide-y divide-gray-50">
               <div v-for="inv in selected.invoices" :key="inv.id"
@@ -434,24 +467,33 @@
       <form  class="space-y-5">
 
         <section>
-          <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Customer Information</h4>
+          <div class="flex items-center justify-between mb-3">
+            <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Customer Information</h4>
+            <label class="flex items-center gap-2 text-xs font-semibold text-gray-600">
+              <input v-model="form.is_anonymous" type="checkbox" class="rounded border-gray-300 text-red-600 focus:ring-red-500">
+              Save anonymously
+            </label>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div class="flex flex-col gap-1.5">
-              <label class="text-xs font-semibold text-gray-600">Phone Number <span class="text-red-500">*</span></label>
-              <input v-model="form.customer_phone" required class="input-base" placeholder="+254 700 000000" @blur="lookupCustomer">
+              <label class="text-xs font-semibold text-gray-600">Phone Number <span v-if="!form.is_anonymous" class="text-red-500">*</span></label>
+              <input v-model="form.customer_phone" :required="!form.is_anonymous" :disabled="form.is_anonymous" class="input-base disabled:bg-gray-50 disabled:text-gray-400" placeholder="+254 700 000000" @blur="lookupCustomer">
               <p v-if="customerFound" class="text-[10px] text-green-600 flex items-center gap-1">
                 <CheckCircleIcon class="w-3 h-3" /> Existing customer found & filled
               </p>
             </div>
             <div class="flex flex-col gap-1.5">
-              <label class="text-xs font-semibold text-gray-600">Full Name <span class="text-red-500">*</span></label>
-              <input v-model="form.customer_name" required class="input-base" placeholder="John Doe">
+              <label class="text-xs font-semibold text-gray-600">Client Name <span v-if="!form.is_anonymous" class="text-red-500">*</span></label>
+              <input v-model="form.customer_name" :required="!form.is_anonymous" class="input-base" :placeholder="form.is_anonymous ? 'Anonymous Client' : 'John Doe'">
             </div>
             <div class="flex flex-col gap-1.5 sm:col-span-2">
               <label class="text-xs font-semibold text-gray-600">Email <span class="text-gray-400 font-normal">(Optional)</span></label>
-              <input v-model="form.customer_email" type="email" class="input-base" placeholder="john@example.com">
+              <input v-model="form.customer_email" type="email" :disabled="form.is_anonymous" class="input-base disabled:bg-gray-50 disabled:text-gray-400" placeholder="john@example.com">
             </div>
           </div>
+          <p v-if="form.is_anonymous" class="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            Personal details will not be stored. The booking will still count toward daily service activity.
+          </p>
         </section>
 
         <div class="h-px bg-gray-100" />
@@ -519,6 +561,50 @@
                 : `border-color:#e5e7eb; color:#374151`">
               {{ s.name }}
             </button>
+          </div>
+        </section>
+
+        <section v-if="!editing && selectedService?.requires_deposit" class="space-y-4">
+          <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+            <div class="text-xs font-bold text-amber-800">Down Payment Required</div>
+            <p class="text-xs text-amber-700 mt-1">
+              {{ selectedService.name }} requires a {{ selectedService.deposit_percent }}% down payment.
+              Collect KES {{ requiredDepositAmount.toLocaleString() }} before saving this booking.
+            </p>
+          </div>
+          <div class="grid grid-cols-3 gap-2">
+            <button v-for="method in ['cash','mpesa','card']" :key="method" type="button" @click="form.deposit_payment.payment_method = method"
+              :class="['px-3 py-2 rounded-xl text-xs font-bold border transition-colors capitalize',
+                form.deposit_payment.payment_method === method ? 'bg-red-600 border-red-600 text-white' : 'border-gray-200 text-gray-600 hover:border-red-300']">
+              {{ method }}
+            </button>
+          </div>
+          <div v-if="form.deposit_payment.payment_method === 'cash'" class="text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2">
+            Cash down payment will be marked as collected immediately when the booking is saved.
+          </div>
+          <div v-if="form.deposit_payment.payment_method === 'mpesa'" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="flex flex-col gap-1.5">
+              <label class="text-xs font-semibold text-gray-600">Customer Phone</label>
+              <input v-model="bookingDepositPhone" class="input-base font-mono" placeholder="+254 700 000000">
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <label class="text-xs font-semibold text-gray-600">M-Pesa Reference</label>
+              <input v-model="form.deposit_payment.mpesa_reference" class="input-base font-mono uppercase" placeholder="e.g. QHK9XXXXX">
+            </div>
+            <div class="sm:col-span-2">
+              <button type="button" @click="sendBookingDepositPrompt" :disabled="!bookingDepositPhone || bookingDepositSending"
+                class="px-4 py-2 text-xs font-bold bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-60">
+                {{ bookingDepositSending ? 'Sending…' : 'Send Payment Prompt' }}
+              </button>
+            </div>
+          </div>
+          <div v-if="form.deposit_payment.payment_method === 'card'" class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Card Reference</label>
+            <input v-model="form.deposit_payment.card_reference" class="input-base font-mono uppercase" placeholder="Approval code">
+          </div>
+          <div v-if="['cash','mpesa','card'].includes(form.deposit_payment.payment_method)" class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Notes</label>
+            <input v-model="form.deposit_payment.notes" class="input-base" placeholder="Optional payment note">
           </div>
         </section>
 
@@ -627,6 +713,62 @@
       </template>
     </Modal>
 
+    <Modal v-model="showDepositModal" title="Collect Down Payment" size="sm">
+      <div v-if="depositBooking" class="space-y-4">
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+          <div class="text-2xl font-extrabold text-gray-900">KES {{ depositAmount.toLocaleString() }}</div>
+          <div class="text-xs text-gray-500 mt-1">Outstanding deposit to collect</div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2">
+          <button v-for="method in ['cash','mpesa','card']" :key="method" @click="depositForm.payment_method = method"
+            :class="['px-3 py-2 rounded-xl text-xs font-bold border transition-colors capitalize',
+              depositForm.payment_method === method ? 'bg-red-600 border-red-600 text-white' : 'border-gray-200 text-gray-600 hover:border-red-300']">
+            {{ method }}
+          </button>
+        </div>
+
+        <div v-if="depositForm.payment_method === 'cash'" class="text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2">
+          Cash payment will be recorded immediately.
+        </div>
+
+        <div v-if="depositForm.payment_method === 'mpesa'" class="space-y-3">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Customer Phone</label>
+            <input v-model="depositPhone" class="input-base font-mono" placeholder="+254 700 000000">
+          </div>
+          <button @click="sendDepositStkPush" :disabled="!depositPhone || depositSending"
+            class="w-full py-2.5 text-xs font-bold bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-60">
+            {{ depositSending ? 'Sending…' : 'Send Payment Prompt' }}
+          </button>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">M-Pesa Reference</label>
+            <input v-model="depositForm.mpesa_reference" class="input-base font-mono uppercase" placeholder="e.g. QHK9XXXXX">
+          </div>
+        </div>
+
+        <div v-if="depositForm.payment_method === 'card'" class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-gray-600">Card Reference</label>
+          <input v-model="depositForm.card_reference" class="input-base font-mono uppercase" placeholder="Approval code">
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-gray-600">Notes</label>
+          <input v-model="depositForm.notes" class="input-base" placeholder="Optional payment note">
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2 w-full">
+          <button @click="showDepositModal = false"
+            class="px-4 py-2 text-xs font-semibold border border-gray-200 rounded-xl hover:bg-gray-50">Cancel</button>
+          <button @click="collectDeposit" :disabled="savingDeposit || !depositForm.payment_method || (depositForm.payment_method === 'mpesa' && !depositForm.mpesa_reference && !depositManualOverride)"
+            class="px-5 py-2 text-xs font-bold bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-60">
+            {{ savingDeposit ? 'Saving…' : 'Record Deposit' }}
+          </button>
+        </div>
+      </template>
+    </Modal>
+
   </div>
 </template>
 
@@ -684,6 +826,13 @@ const showView      = ref(false); const showForm = ref(false)
 const editing       = ref(false); const selected = ref(null)
 const saving        = ref(false); const updatingStatus = ref(false); const formError = ref(null)
 const customerFound = ref(false); const vehicleFound = ref('')
+const showDepositModal = ref(false)
+const depositBooking = ref(null)
+const savingDeposit = ref(false)
+const depositSending = ref(false)
+const depositManualOverride = ref(false)
+const bookingDepositSending = ref(false)
+const depositForm = ref({ payment_method:'cash', mpesa_reference:'', card_reference:'', gateway_reference:'', notes:'' })
 
 // Checklist modal
 const showChecklistModal  = ref(false)
@@ -698,19 +847,48 @@ const checklistModalTitle = computed(() =>
 
 const today       = new Date().toISOString().split('T')[0]
 const defaultForm = () => ({
+  is_anonymous:false,
   customer_name:'', customer_phone:'', customer_email:'',
   vehicle_reg:'', vehicle_make:'', vehicle_model:'',
   service_id:'', source:'walk_in', date:'', time:'', notes:'', status:'pending',
   include_checklist: true,
+  deposit_payment: { payment_method:'', mpesa_reference:'', card_reference:'', gateway_reference:'', notes:'' },
   checklist: defaultChecklist(),
 })
 const form = ref(defaultForm())
+const selectedService = computed(() => services.value.find(s => String(s.id) === String(form.value.service_id)))
+const requiredDepositAmount = computed(() => {
+  if (!selectedService.value?.requires_deposit) return 0
+  return Math.round(((selectedService.value.price_from ?? 0) * (selectedService.value.deposit_percent ?? 0)) / 100)
+})
+const depositReference = computed({
+  get: () => form.value.deposit_payment.mpesa_reference || form.value.deposit_payment.card_reference || form.value.deposit_payment.gateway_reference || '',
+  set: value => {
+    const method = form.value.deposit_payment.payment_method
+    form.value.deposit_payment.mpesa_reference = method === 'mpesa' ? value : ''
+    form.value.deposit_payment.card_reference = method === 'card' ? value : ''
+    form.value.deposit_payment.gateway_reference = !['mpesa', 'card'].includes(method) ? value : ''
+  },
+})
 
 const timeSlots = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM','02:00 PM','03:00 PM','04:00 PM','05:00 PM']
 const timeMap   = { '08:00 AM':'08:00','09:00 AM':'09:00','10:00 AM':'10:00','11:00 AM':'11:00','12:00 PM':'12:00','01:00 PM':'13:00','02:00 PM':'14:00','03:00 PM':'15:00','04:00 PM':'16:00','05:00 PM':'17:00' }
 
 const headers     = ['Customer','Vehicle','Service','Date & Time','Status','Checklist / Invoice','Actions']
 const pageNumbers = computed(() => Array.from({length:Math.min(bookings.value.last_page,5)},(_,i)=>i+1))
+const depositAmount = computed(() => depositBooking.value?.deposit?.outstanding_amount ?? 0)
+const depositPhone = computed({
+  get: () => depositBooking.value?.customer?.phone ?? '',
+  set: value => {
+    if (depositBooking.value?.customer) depositBooking.value.customer.phone = value
+  },
+})
+const bookingDepositPhone = computed({
+  get: () => form.value.customer_phone ?? '',
+  set: value => {
+    form.value.customer_phone = value
+  },
+})
 
 const viewRows = computed(() => {
   if (!selected.value) return []
@@ -724,6 +902,15 @@ const viewRows = computed(() => {
     { label:'Notes',     value: b.notes||'—' },
   ]
 })
+const paymentStatusLabel = status => ({ unpaid:'Unpaid', partial:'Partial', paid:'Paid' }[status] ?? 'Unpaid')
+const paymentStatusBadge = status => ['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+  status === 'paid' ? 'bg-green-100 text-green-700' : status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600']
+const depositProgress = booking => {
+  const required = booking?.deposit?.required_amount ?? 0
+  const paid = booking?.deposit?.paid_amount ?? 0
+  if (!required) return 0
+  return Math.min(100, Math.round((paid / required) * 100))
+}
 
 // ── API ────────────────────────────────────────────────────────────────────────
 async function load() {
@@ -749,6 +936,7 @@ function clearFilters() {
 }
 
 async function lookupCustomer() {
+  if (form.value.is_anonymous) return
   if (form.value.customer_phone.length<9) return
   try {
     const data = await get('/admin/customers',{search:form.value.customer_phone})
@@ -849,7 +1037,9 @@ function openEdit(b) {
   editing.value=true; selected.value=b
   const dt = b.scheduled_at ? new Date(b.scheduled_at) : null
   form.value = {
-    customer_name:  b.customer.name,   customer_phone: b.customer.phone,
+    is_anonymous:   !!b.customer.is_anonymous,
+    customer_name:  b.customer.is_anonymous ? (b.customer.name === 'Anonymous' ? '' : b.customer.name) : b.customer.name,
+    customer_phone: b.customer.is_anonymous ? '' : b.customer.phone,
     customer_email: b.customer.email ?? '',
     vehicle_reg:    b.vehicle.registration,
     vehicle_make:   b.vehicle.make  !== 'Unknown' ? b.vehicle.make  : '',
@@ -858,6 +1048,7 @@ function openEdit(b) {
     date:           dt ? dt.toISOString().split('T')[0] : '',
     time:           b.scheduled_time ?? '',
     notes:          b.notes ?? '', status: b.status.slug,
+    deposit_payment: { payment_method:'', mpesa_reference:'', card_reference:'', gateway_reference:'', notes:'' },
     include_checklist: false, checklist: defaultChecklist(),
   }
   formError.value=null; showView.value=false; showForm.value=true
@@ -865,11 +1056,19 @@ function openEdit(b) {
 
 function openView(b) { selected.value=b; showView.value=true }
 
+function openDepositModal(booking) {
+  depositBooking.value = booking
+  depositForm.value = { payment_method:'cash', mpesa_reference:'', card_reference:'', gateway_reference:'', notes:'' }
+  depositManualOverride.value = false
+  showDepositModal.value = true
+}
+
 async function saveBooking() {
   saving.value=true; formError.value=null
   const time24      = timeMap[form.value.time] ?? '09:00'
   const scheduledAt = `${form.value.date}T${time24}:00`
   const payload = {
+    is_anonymous:   form.value.is_anonymous,
     customer_name:  form.value.customer_name,
     customer_phone: form.value.customer_phone,
     customer_email: form.value.customer_email || undefined,
@@ -881,6 +1080,13 @@ async function saveBooking() {
     scheduled_at:   scheduledAt,
     notes:          form.value.notes         || undefined,
     ...(editing.value ? { status: form.value.status } : {}),
+    ...(!editing.value && selectedService.value?.requires_deposit ? { deposit_payment: {
+      payment_method: form.value.deposit_payment.payment_method || undefined,
+      mpesa_reference: form.value.deposit_payment.mpesa_reference || undefined,
+      card_reference: form.value.deposit_payment.card_reference || undefined,
+      gateway_reference: form.value.deposit_payment.gateway_reference || undefined,
+      notes: form.value.deposit_payment.notes || undefined,
+    }} : {}),
     ...(!editing.value && form.value.include_checklist ? { checklist: {
       fuel_level:          form.value.checklist.fuel_level    || null,
       odometer:            form.value.checklist.odometer      || null,
@@ -903,6 +1109,67 @@ async function saveBooking() {
   } catch (e) {
     formError.value = e.response?.data?.message ?? 'Failed to save booking.'
   } finally { saving.value=false }
+}
+
+async function sendDepositStkPush() {
+  if (!depositBooking.value) return
+  depositSending.value = true
+  try {
+    const res = await post('/admin/mpesa/stk-push', {
+      phone: depositPhone.value,
+      amount: depositAmount.value,
+      booking_id: depositBooking.value.id,
+      reference: `${depositBooking.value.reference}-DEPOSIT`,
+      customer_name: depositBooking.value.customer?.name,
+    })
+    depositForm.value.gateway_reference = res.checkout_request
+    depositManualOverride.value = true
+    toast.success('Deposit payment prompt sent.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Failed to send payment prompt.')
+  } finally {
+    depositSending.value = false
+  }
+}
+
+async function sendBookingDepositPrompt() {
+  bookingDepositSending.value = true
+  try {
+    const res = await post('/admin/mpesa/stk-push', {
+      phone: bookingDepositPhone.value,
+      amount: requiredDepositAmount.value,
+      reference: `BOOKING-DEPOSIT-${form.value.vehicle_reg || 'NEW'}`,
+      customer_name: form.value.customer_name || 'Anonymous Client',
+    })
+    form.value.deposit_payment.gateway_reference = res.checkout_request
+    toast.success('Deposit payment prompt sent.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Failed to send payment prompt.')
+  } finally {
+    bookingDepositSending.value = false
+  }
+}
+
+async function collectDeposit() {
+  if (!depositBooking.value) return
+  savingDeposit.value = true
+  try {
+    const booking = await post(`/admin/bookings/${depositBooking.value.id}/collect-deposit`, {
+      payment_method: depositForm.value.payment_method,
+      mpesa_reference: depositForm.value.mpesa_reference || undefined,
+      card_reference: depositForm.value.card_reference || undefined,
+      gateway_reference: depositForm.value.gateway_reference || undefined,
+      notes: depositForm.value.notes || undefined,
+    })
+    selected.value = booking
+    showDepositModal.value = false
+    await load()
+    toast.success('Down payment recorded.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Failed to record down payment.')
+  } finally {
+    savingDeposit.value = false
+  }
 }
 
 async function handleDelete(b) {
@@ -931,6 +1198,7 @@ function goToCheckout(b) {
     service_name: b.service.name,
     reference:    b.reference,
     checklist_id: b.checklist?.id ?? '',
+    open_checkout: '1',
   }})
 }
 

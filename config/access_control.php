@@ -1,0 +1,75 @@
+<?php
+
+return [
+    'roles' => [
+        [
+            'name' => 'Super Admin',
+            'slug' => 'super_admin',
+            'description' => 'Full access to the entire system, settings, users, and security controls.',
+        ],
+        [
+            'name' => 'Admin',
+            'slug' => 'admin',
+            'description' => 'Operational control across most business modules without full system governance.',
+        ],
+        [
+            'name' => 'Receptionist',
+            'slug' => 'receptionist',
+            'description' => 'Front-desk access for bookings, customers, vehicles, POS, and payments.',
+        ],
+    ],
+
+    'permissions' => [
+        ['name' => 'View Dashboard', 'slug' => 'dashboard.view', 'group' => 'Dashboard', 'description' => 'Access dashboard metrics and overview widgets.'],
+        ['name' => 'Manage Bookings', 'slug' => 'bookings.manage', 'group' => 'Operations', 'description' => 'Create, update, and manage bookings and check-ins.'],
+        ['name' => 'Manage Customers', 'slug' => 'customers.manage', 'group' => 'Operations', 'description' => 'Manage customer records and service history.'],
+        ['name' => 'Manage Vehicles', 'slug' => 'vehicles.manage', 'group' => 'Operations', 'description' => 'Manage vehicles, inspections, and vehicle history.'],
+        ['name' => 'Manage Job Cards', 'slug' => 'job_cards.manage', 'group' => 'Workshop', 'description' => 'Manage workshop job cards and stage updates.'],
+        ['name' => 'Manage Checklists', 'slug' => 'checklists.manage', 'group' => 'Workshop', 'description' => 'Create and update vehicle checklists.'],
+        ['name' => 'Use POS', 'slug' => 'pos.manage', 'group' => 'Sales', 'description' => 'Use point of sale checkout and related sales actions.'],
+        ['name' => 'Manage Payments', 'slug' => 'payments.manage', 'group' => 'Sales', 'description' => 'View invoices, update statuses, and manage payments.'],
+        ['name' => 'Manage Inventory', 'slug' => 'inventory.manage', 'group' => 'Inventory', 'description' => 'Manage stock items, stock movements, and alerts.'],
+        ['name' => 'View Reports', 'slug' => 'reports.view', 'group' => 'Analytics', 'description' => 'Access analytics and reporting views.'],
+        ['name' => 'Manage Settings', 'slug' => 'settings.manage', 'group' => 'Administration', 'description' => 'Manage global business settings and configuration.'],
+        ['name' => 'Manage Users', 'slug' => 'users.manage', 'group' => 'Administration', 'description' => 'Create users, assign roles, permissions, and manage access.'],
+        ['name' => 'Manage Services', 'slug' => 'services.manage', 'group' => 'Website Content', 'description' => 'Manage service categories and service records.'],
+        ['name' => 'Manage Staff Members', 'slug' => 'staff.manage', 'group' => 'Website Content', 'description' => 'Manage staff members shown on the website.'],
+        ['name' => 'Manage Reviews', 'slug' => 'reviews.manage', 'group' => 'Website Content', 'description' => 'Manage customer reviews and publication state.'],
+        ['name' => 'Manage Feedback', 'slug' => 'feedback.manage', 'group' => 'Customer Experience', 'description' => 'Manage customer feedback and feedback links.'],
+        ['name' => 'Manage Gallery', 'slug' => 'gallery.manage', 'group' => 'Website Content', 'description' => 'Manage gallery images and service image groups.'],
+        ['name' => 'Manage Profile', 'slug' => 'profile.manage', 'group' => 'Account', 'description' => 'Update own profile and personal account details.'],
+    ],
+
+    'role_permissions' => [
+        'super_admin' => ['*'],
+        'admin' => [
+            'dashboard.view',
+            'bookings.manage',
+            'customers.manage',
+            'vehicles.manage',
+            'job_cards.manage',
+            'checklists.manage',
+            'pos.manage',
+            'payments.manage',
+            'inventory.manage',
+            'reports.view',
+            'services.manage',
+            'staff.manage',
+            'reviews.manage',
+            'feedback.manage',
+            'gallery.manage',
+            'profile.manage',
+        ],
+        'receptionist' => [
+            'dashboard.view',
+            'bookings.manage',
+            'customers.manage',
+            'vehicles.manage',
+            'checklists.manage',
+            'pos.manage',
+            'payments.manage',
+            'feedback.manage',
+            'profile.manage',
+        ],
+    ],
+];

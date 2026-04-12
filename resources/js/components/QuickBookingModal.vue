@@ -3,8 +3,8 @@
     title="New Booking" size="2xl">
     <form @submit.prevent="save" class="space-y-5">
 
-      <!-- Customer info (read-only) -->
-      <div class="bg-gray-50 rounded-xl px-4 py-3 flex items-center gap-3">
+      <!-- Customer info -->
+      <div v-if="customer" class="bg-gray-50 rounded-xl px-4 py-3 flex items-center gap-3">
         <div class="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
           :style="`background:${avatarColor(customer?.name)}`">
           {{ initials(customer?.name) }}
@@ -14,6 +14,29 @@
           <div class="text-[10px] text-gray-500">{{ customer?.phone }}</div>
         </div>
       </div>
+      <section v-else>
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Customer Information</h4>
+          <label class="flex items-center gap-2 text-xs font-semibold text-gray-600">
+            <input v-model="form.is_anonymous" type="checkbox" class="rounded border-gray-300 text-red-600 focus:ring-red-500">
+            Save anonymously
+          </label>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Phone Number <span v-if="!form.is_anonymous" class="text-red-500">*</span></label>
+            <input v-model="form.customer_phone" :disabled="form.is_anonymous" class="input-base disabled:bg-gray-50 disabled:text-gray-400" placeholder="+254 700 000000">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Client Name <span v-if="!form.is_anonymous" class="text-red-500">*</span></label>
+            <input v-model="form.customer_name" class="input-base" :placeholder="form.is_anonymous ? 'Anonymous Client' : 'John Doe'">
+          </div>
+          <div class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Email</label>
+            <input v-model="form.customer_email" :disabled="form.is_anonymous" type="email" class="input-base disabled:bg-gray-50 disabled:text-gray-400" placeholder="john@example.com">
+          </div>
+        </div>
+      </section>
 
       <div class="h-px bg-gray-100" />
 
@@ -83,6 +106,46 @@
               <option v-for="slot in timeSlots" :key="slot" :value="slot">{{ slot }}</option>
             </select>
           </div>
+        </div>
+      </section>
+
+      <section v-if="selectedService?.requires_deposit" class="space-y-4">
+        <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <div class="text-xs font-bold text-amber-800">Down Payment Required</div>
+          <p class="text-xs text-amber-700 mt-1">
+            {{ selectedService.name }} requires a {{ selectedService.deposit_percent }}% down payment.
+            Collect KES {{ requiredDepositAmount.toLocaleString() }} before saving this booking.
+          </p>
+        </div>
+        <div class="grid grid-cols-3 gap-2">
+          <button v-for="method in ['cash','mpesa','card']" :key="method" type="button" @click="form.deposit_payment.payment_method = method"
+            :class="['px-3 py-2 rounded-xl text-xs font-bold border transition-colors capitalize',
+              form.deposit_payment.payment_method === method ? 'bg-red-600 border-red-600 text-white' : 'border-gray-200 text-gray-600 hover:border-red-300']">
+            {{ method }}
+          </button>
+        </div>
+        <div v-if="form.deposit_payment.payment_method === 'cash'" class="text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2">
+          Cash down payment will be marked as collected immediately when the booking is saved.
+        </div>
+        <div v-if="form.deposit_payment.payment_method === 'mpesa'" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">Customer Phone</label>
+            <input v-model="depositPhone" class="input-base font-mono" placeholder="+254 700 000000">
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-600">M-Pesa Reference</label>
+            <input v-model="form.deposit_payment.mpesa_reference" class="input-base font-mono uppercase" placeholder="e.g. QHK9XXXXX">
+          </div>
+          <div class="sm:col-span-2">
+            <button type="button" @click="sendDepositPrompt" :disabled="!depositPhone || depositSending"
+              class="px-4 py-2 text-xs font-bold bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-60">
+              {{ depositSending ? 'Sending…' : 'Send Payment Prompt' }}
+            </button>
+          </div>
+        </div>
+        <div v-if="form.deposit_payment.payment_method === 'card'" class="flex flex-col gap-1.5">
+          <label class="text-xs font-semibold text-gray-600">Card Reference</label>
+          <input v-model="form.deposit_payment.card_reference" class="input-base font-mono uppercase" placeholder="Approval code">
         </div>
       </section>
 
@@ -212,6 +275,7 @@ const { get, post } = useApi()
 const services = ref([])
 const saving   = ref(false)
 const error    = ref(null)
+const depositSending = ref(false)
 
 const today     = new Date().toISOString().split('T')[0]
 const timeSlots = ['08:00 AM','09:00 AM','10:00 AM','11:00 AM','12:00 PM','01:00 PM','02:00 PM','03:00 PM','04:00 PM','05:00 PM']
@@ -235,13 +299,25 @@ const defaultChecklist = () => ({
 })
 
 const defaultForm = () => ({
+  is_anonymous: false,
+  customer_name: '', customer_phone: '', customer_email: '',
   vehicle_reg: '', custom_reg: '', vehicle_make: '', vehicle_model: '',
   service_id: '', source: 'walk_in', date: '', time: '', notes: '',
   include_checklist: true,
+  deposit_payment: { payment_method:'', mpesa_reference:'', card_reference:'', gateway_reference:'', notes:'' },
   checklist: defaultChecklist(),
 })
 
 const form = ref(defaultForm())
+const selectedService = computed(() => services.value.find(s => String(s.id) === String(form.value.service_id)))
+const requiredDepositAmount = computed(() => {
+  if (!selectedService.value?.requires_deposit) return 0
+  return Math.round(((selectedService.value.price_from ?? 0) * (selectedService.value.deposit_percent ?? 0)) / 100)
+})
+const depositPhone = computed({
+  get: () => props.customer?.phone ?? '',
+  set: () => {},
+})
 
 const vehicleFromList = computed(() =>
   !!props.customer?.vehicles?.find(v => v.registration === form.value.vehicle_reg)
@@ -274,6 +350,11 @@ watch(() => props.modelValue, open => {
       form.value.vehicle_reg = props.customer.vehicles[0].registration
       onVehicleSelect()
     }
+    if (props.customer) {
+      form.value.customer_name = props.customer.name ?? ''
+      form.value.customer_phone = props.customer.phone ?? ''
+      form.value.customer_email = props.customer.email ?? ''
+    }
   }
 })
 
@@ -291,9 +372,10 @@ async function save() {
 
   try {
     await post('/admin/bookings', {
-      customer_name:  props.customer.name,
-      customer_phone: props.customer.phone,
-      customer_email: props.customer.email || undefined,
+      is_anonymous:   !props.customer && form.value.is_anonymous,
+      customer_name:  props.customer?.name ?? form.value.customer_name,
+      customer_phone: props.customer?.phone ?? form.value.customer_phone,
+      customer_email: props.customer?.email || form.value.customer_email || undefined,
       vehicle_reg:    reg,
       vehicle_make:   form.value.vehicle_make  || undefined,
       vehicle_model:  form.value.vehicle_model || undefined,
@@ -301,6 +383,13 @@ async function save() {
       source:         form.value.source,
       scheduled_at:   scheduledAt,
       notes:          form.value.notes         || undefined,
+      ...(selectedService.value?.requires_deposit ? { deposit_payment: {
+        payment_method: form.value.deposit_payment.payment_method || undefined,
+        mpesa_reference: form.value.deposit_payment.mpesa_reference || undefined,
+        card_reference: form.value.deposit_payment.card_reference || undefined,
+        gateway_reference: form.value.deposit_payment.gateway_reference || undefined,
+        notes: form.value.deposit_payment.notes || undefined,
+      }} : {}),
       // Include checklist if toggled on
       ...(form.value.include_checklist ? {
         checklist: {
@@ -321,6 +410,23 @@ async function save() {
   } catch (e) {
     error.value = e.response?.data?.message ?? 'Failed to create booking.'
   } finally { saving.value = false }
+}
+
+async function sendDepositPrompt() {
+  depositSending.value = true
+  try {
+    const res = await post('/admin/mpesa/stk-push', {
+      phone: props.customer?.phone || form.value.customer_phone,
+      amount: requiredDepositAmount.value,
+      reference: `CUSTOMER-BOOKING-${props.customer?.id ?? 'NEW'}`,
+      customer_name: props.customer?.name || form.value.customer_name,
+    })
+    form.value.deposit_payment.gateway_reference = res.checkout_request
+  } catch (e) {
+    error.value = e.response?.data?.message ?? 'Failed to send payment prompt.'
+  } finally {
+    depositSending.value = false
+  }
 }
 
 onMounted(async () => {

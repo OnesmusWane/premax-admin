@@ -32,6 +32,8 @@ class ServiceController extends Controller
             'price_from'          => 'nullable|integer|min:0',
             'price_to'            => 'nullable|integer|min:0',
             'duration_minutes'    => 'nullable|integer|min:1',
+            'requires_deposit'    => 'boolean',
+            'deposit_percent'     => 'nullable|integer|min:1|max:100',
             'is_popular'          => 'boolean',
         ]);
  
@@ -44,6 +46,8 @@ class ServiceController extends Controller
             'price_to'            => $request->price_to,
             'price_is_estimate'   => true,
             'duration_minutes'    => $request->duration_minutes,
+            'requires_deposit'    => $request->boolean('requires_deposit'),
+            'deposit_percent'     => $request->boolean('requires_deposit') ? $request->deposit_percent : null,
             'is_popular'          => $request->boolean('is_popular'),
             'is_active'           => true,
             'sort_order'          => Service::where('service_category_id', $request->service_category_id)->max('sort_order') + 1,
@@ -61,17 +65,25 @@ class ServiceController extends Controller
             'price_from'          => 'nullable|integer|min:0',
             'price_to'            => 'nullable|integer|min:0',
             'duration_minutes'    => 'nullable|integer|min:1',
+            'requires_deposit'    => 'boolean',
+            'deposit_percent'     => 'nullable|integer|min:1|max:100',
             'is_popular'          => 'boolean',
             'is_active'           => 'boolean',
         ]);
  
-        $service->update($request->only([
+        $data = $request->only([
             'name', 'service_category_id', 'description',
             'price_from', 'price_to', 'duration_minutes',
-            'is_popular', 'is_active',
-        ]));
+            'is_popular', 'is_active', 'requires_deposit', 'deposit_percent',
+        ]);
+
+        if ($request->has('requires_deposit') && !$request->boolean('requires_deposit')) {
+            $data['deposit_percent'] = null;
+        }
+
+        $service->update($data);
  
-        return response()->json($service->fresh('category'));
+        return response()->json($service->fresh('serviceCategory'));
     }
  
     public function destroy(Service $service)

@@ -9,6 +9,8 @@ use App\Models\BookingSource;
 use App\Models\Customer;
 use App\Models\Vehicle;
 use App\Models\Service;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
 use Illuminate\Http\Request;
 use Carbon\Carbon;
 use App\Models\VehicleChecklist;
@@ -25,6 +27,7 @@ class BookingsController extends Controller
             ->when($request->search, function ($q, $s) {
                 $q->whereHas('customer', fn($q) => $q->where('name', 'like', "%$s%")
                     ->orWhere('phone', 'like', "%$s%"))
+                ->orWhere('anonymous_customer_name', 'like', "%$s%")
                 ->orWhereHas('vehicle', fn($q) => $q->where('registration', 'like', "%$s%"));
             })
             ->when($request->status, function ($q, $s) {
@@ -48,16 +51,23 @@ class BookingsController extends Controller
 public function store(Request $request)
 {
     $request->validate([
-        'customer_name'   => 'required|string|max:150',
-        'customer_phone'  => 'required|string|max:20',
+        'is_anonymous'    => 'sometimes|boolean',
+        'customer_name'   => 'nullable|string|max:150|required_unless:is_anonymous,true',
+        'customer_phone'  => 'nullable|string|max:20|required_unless:is_anonymous,true',
         'customer_email'  => 'nullable|email|max:150',
         'vehicle_reg'     => 'required|string|max:20',
         'vehicle_make'    => 'nullable|string|max:100',
         'vehicle_model'   => 'nullable|string|max:100',
-        'service_id'      => 'nullable|exists:services,id',
+        'service_id'      => 'required|exists:services,id',
         'scheduled_at'    => 'required|date',
         'notes'           => 'nullable|string|max:1000',
         'source'          => 'nullable|string',
+        'deposit_payment'                 => 'nullable|array',
+        'deposit_payment.payment_method'  => 'nullable|in:cash,mpesa,card,bank_transfer,other',
+        'deposit_payment.mpesa_reference' => 'nullable|string|max:100',
+        'deposit_payment.card_reference'  => 'nullable|string|max:100',
+        'deposit_payment.gateway_reference' => 'nullable|string|max:255',
+        'deposit_payment.notes'           => 'nullable|string|max:500',
         // Optional checklist
         'checklist'                      => 'nullable|array',
         'checklist.fuel_level'           => 'nullable|in:F,3/4,1/2,1/4,E',
@@ -73,19 +83,26 @@ public function store(Request $request)
     ]);
  
     return DB::transaction(function () use ($request) {
- 
-        // ── 1. Upsert customer ─────────────────────────────────────────────
-        $customer = Customer::updateOrCreate(
-            ['phone' => $request->customer_phone],
-            [
-                'name'         => $request->customer_name,
-                'email'        => $request->customer_email ?? null,
-                'member_since' => now()->toDateString(),
-                'is_active'    => true,
-            ]
+        $service = Service::findOrFail($request->service_id);
+        $isAnonymous = $request->boolean('is_anonymous');
+        $depositPercent = $service->requires_deposit ? (int) $service->deposit_percent : null;
+        $depositRequiredAmount = $depositPercent
+            ? (int) round(((int) ($service->price_from ?? 0)) * $depositPercent / 100)
+            : 0;
+
+        if ($depositRequiredAmount > 0 && !$request->filled('deposit_payment.payment_method')) {
+            return response()->json([
+                'message' => "This service requires a {$depositPercent}% down payment before the booking can be saved.",
+            ], 422);
+        }
+
+        $customer = $this->resolveCustomer(
+            $request->customer_name,
+            $request->customer_phone,
+            $request->customer_email,
+            $isAnonymous
         );
  
-        // ── 2. Upsert vehicle ──────────────────────────────────────────────
         $reg     = strtoupper(trim($request->vehicle_reg));
         $vehicle = Vehicle::updateOrCreate(
             ['registration' => $reg],
@@ -102,16 +119,14 @@ public function store(Request $request)
             $vehicle->update(['last_service_at' => now()]);
         }
  
-        // ── 3. Resolve service / status / source ───────────────────────────
-        $service = $request->service_id ? Service::find($request->service_id) : null;
         $status  = BookingStatus::where('slug', 'pending')->first();
         $source  = BookingSource::where('slug', $request->source ?? 'walk_in')->first()
                 ?? BookingSource::where('slug', 'walk_in')->first();
  
-        // ── 4. Create booking ──────────────────────────────────────────────
         $booking = Booking::create([
             'reference'         => Booking::generateReference(),
             'customer_id'       => $customer->id,
+            'anonymous_customer_name' => $isAnonymous ? $customer->name : null,
             'vehicle_id'        => $vehicle->id,
             'service_id'        => $service?->id,
             'booking_status_id' => $status?->id,
@@ -119,11 +134,12 @@ public function store(Request $request)
             'scheduled_at'      => Carbon::parse($request->scheduled_at),
             'customer_notes'    => $request->notes,
             'checklist_id'      => null,
+            'requires_deposit'  => $depositRequiredAmount > 0,
+            'deposit_percent'   => $depositPercent,
+            'deposit_required_amount' => $depositRequiredAmount,
+            'deposit_paid_amount' => 0,
         ]);
  
-        // ── 5. Create checklist if provided ───────────────────────────────
-        // Checklist is created whether staff fills it in or just toggles it on
-        // If toggled on but not filled, defaults to all-OK
         if ($request->has('checklist')) {
             $cl = $request->input('checklist', []);
  
@@ -149,13 +165,52 @@ public function store(Request $request)
                 'checked_in_at'      => now(),
             ]);
  
-            // ── 6. Link checklist to booking ───────────────────────────────
             $booking->update(['checklist_id' => $checklist->id]);
+        }
+
+        if ($depositRequiredAmount > 0) {
+            $payment = $request->input('deposit_payment', []);
+
+            $invoice = Invoice::create([
+                'invoice_number'  => Invoice::generateNumber(),
+                'customer_id'     => $customer->id,
+                'anonymous_customer_name' => $isAnonymous ? $customer->name : null,
+                'vehicle_id'      => $vehicle->id,
+                'booking_id'      => $booking->id,
+                'sale_type'       => 'booking_deposit',
+                'payment_method'  => $payment['payment_method'] ?? null,
+                'payment_provider'=> ($payment['payment_method'] ?? null) === 'mpesa' ? 'kopokopo' : null,
+                'mpesa_reference' => $payment['mpesa_reference'] ?? null,
+                'gateway_reference' => $payment['gateway_reference'] ?? null,
+                // 'card_reference'  => $payment['card_reference'] ?? null,
+                'subtotal'        => $depositRequiredAmount,
+                'vat_percent'     => 0,
+                'vat_amount'      => 0,
+                'discount'        => 0,
+                'total'           => $depositRequiredAmount,
+                'status'          => 'paid',
+                'notes'           => $payment['notes'] ?? "Booking deposit for {$service->name}",
+                'paid_at'         => now(),
+                'created_by'      => $request->user()->id,
+            ]);
+
+            InvoiceItem::create([
+                'invoice_id'   => $invoice->id,
+                'line_type'    => 'deposit',
+                'service_id'   => $service->id,
+                'description'  => "Booking deposit for {$service->name}",
+                'quantity'     => 1,
+                'unit_price'   => $depositRequiredAmount,
+                'total'        => $depositRequiredAmount,
+                'meta'         => ['deposit_percent' => $depositPercent],
+            ]);
+
+            $booking->update(['deposit_paid_amount' => $depositRequiredAmount]);
         }
  
         return response()->json(
             $this->transform(
-                $booking->load(['customer', 'vehicle', 'service', 'status', 'source', 'checklist'])
+                $booking->load(['customer', 'vehicle', 'service', 'status', 'source', 'checklist', 'invoices'])
             ),
             201
         );
@@ -168,7 +223,7 @@ public function store(Request $request)
     public function show(Booking $booking)
     {
         return response()->json(
-            $this->transform($booking->load(['customer', 'vehicle', 'service', 'status', 'source', 'checklist']))
+            $this->transform($booking->load(['customer', 'vehicle', 'service', 'status', 'source', 'checklist', 'invoices']))
         );
     }
 
@@ -201,8 +256,77 @@ public function store(Request $request)
         $booking->save();
 
         return response()->json(
-            $this->transform($booking->fresh(['customer', 'vehicle', 'service', 'status', 'source', 'checklist']))
+            $this->transform($booking->fresh(['customer', 'vehicle', 'service', 'status', 'source', 'checklist', 'invoices']))
         );
+    }
+
+    public function collectDeposit(Request $request, Booking $booking)
+    {
+        $request->validate([
+            'payment_method' => 'required|in:cash,mpesa,card,bank_transfer,other',
+            'mpesa_reference' => 'nullable|string|max:100',
+            'card_reference' => 'nullable|string|max:100',
+            'gateway_reference' => 'nullable|string|max:255',
+            'notes' => 'nullable|string|max:500',
+        ]);
+
+        if (!$booking->requires_deposit || $booking->deposit_required_amount <= 0) {
+            return response()->json([
+                'message' => 'This booking does not require a down payment.',
+            ], 422);
+        }
+
+        $outstanding = max(0, $booking->deposit_required_amount - $booking->deposit_paid_amount);
+
+        if ($outstanding <= 0) {
+            return response()->json([
+                'message' => 'The full down payment has already been collected.',
+            ], 422);
+        }
+
+        return DB::transaction(function () use ($request, $booking, $outstanding) {
+            $invoice = Invoice::create([
+                'invoice_number'  => Invoice::generateNumber(),
+                'customer_id'     => $booking->customer_id,
+                'anonymous_customer_name' => $booking->anonymous_customer_name,
+                'vehicle_id'      => $booking->vehicle_id,
+                'booking_id'      => $booking->id,
+                'sale_type'       => 'booking_deposit',
+                'payment_method'  => $request->payment_method,
+                'payment_provider'=> $request->payment_method === 'mpesa' ? 'kopokopo' : null,
+                'mpesa_reference' => $request->mpesa_reference,
+                'gateway_reference' => $request->gateway_reference,
+                'card_reference'  => $request->card_reference,
+                'subtotal'        => $outstanding,
+                'vat_percent'     => 0,
+                'vat_amount'      => 0,
+                'discount'        => 0,
+                'total'           => $outstanding,
+                'status'          => 'paid',
+                'notes'           => $request->notes ?: "Collected booking deposit for {$booking->service?->name}",
+                'paid_at'         => now(),
+                'created_by'      => $request->user()->id,
+            ]);
+
+            InvoiceItem::create([
+                'invoice_id'   => $invoice->id,
+                'line_type'    => 'deposit',
+                'service_id'   => $booking->service_id,
+                'description'  => "Booking deposit for {$booking->service?->name}",
+                'quantity'     => 1,
+                'unit_price'   => $outstanding,
+                'total'        => $outstanding,
+                'meta'         => ['deposit_percent' => $booking->deposit_percent],
+            ]);
+
+            $booking->update([
+                'deposit_paid_amount' => min($booking->deposit_required_amount, $booking->deposit_paid_amount + $outstanding),
+            ]);
+
+            return response()->json(
+                $this->transform($booking->fresh(['customer', 'vehicle', 'service', 'status', 'source', 'checklist', 'invoices']))
+            );
+        });
     }
 
     /**
@@ -248,9 +372,10 @@ public function store(Request $request)
         'reference'     => $b->reference,
         'customer'      => [
             'id'    => $b->customer?->id,
-            'name'  => $b->customer?->name  ?? '—',
-            'phone' => $b->customer?->phone ?? '—',
+            'name'  => $b->anonymous_customer_name ?? $b->customer?->name ?? '—',
+            'phone' => $b->customer?->phone ?? ($b->customer?->is_anonymous ? 'Anonymous' : '—'),
             'email' => $b->customer?->email,
+            'is_anonymous' => (bool) ($b->customer?->is_anonymous ?? $b->anonymous_customer_name),
         ],
         'vehicle'       => [
             'id'           => $b->vehicle?->id,
@@ -285,6 +410,7 @@ public function store(Request $request)
             'id'             => $inv->id,
             'invoice_number' => $inv->invoice_number,
             'total'          => $inv->total,
+            'sale_type'      => $inv->sale_type,
             'payment_method' => $inv->payment_method,
             'mpesa_reference'=> $inv->mpesa_reference,
             'status'         => $inv->status,
@@ -292,7 +418,59 @@ public function store(Request $request)
         ]) ?? [],
         // Add a convenience flag:
         'is_paid' => $b->invoices?->where('status', 'paid')->count() > 0,
+        'deposit' => [
+            'required' => (bool) $b->requires_deposit,
+            'percent'  => $b->deposit_percent,
+            'required_amount' => $b->deposit_required_amount,
+            'paid_amount' => $b->deposit_paid_amount,
+            'outstanding_amount' => max(0, (int) $b->deposit_required_amount - (int) $b->deposit_paid_amount),
+            'is_paid' => $b->deposit_required_amount > 0 && $b->deposit_paid_amount >= $b->deposit_required_amount,
+        ],
+        'payment_summary' => [
+            'paid_total' => (int) ($b->invoices?->where('status', 'paid')->sum('total') ?? 0),
+            'status' => $this->paymentStatus($b),
+        ],
         'created_at'    => $b->created_at?->toISOString(),
     ];
 }
+
+    private function resolveCustomer(?string $name, ?string $phone, ?string $email, bool $isAnonymous): Customer
+    {
+        if ($isAnonymous) {
+            return Customer::create([
+                'name' => $name ?: 'Anonymous Client',
+                'phone' => null,
+                'email' => null,
+                'member_since' => now()->toDateString(),
+                'is_active' => true,
+                'is_anonymous' => true,
+            ]);
+        }
+
+        return Customer::updateOrCreate(
+            ['phone' => $phone],
+            [
+                'name'         => $name,
+                'email'        => $email ?: null,
+                'member_since' => now()->toDateString(),
+                'is_active'    => true,
+                'is_anonymous' => false,
+            ]
+        );
+    }
+
+    private function paymentStatus(Booking $booking): string
+    {
+        $paidTotal = (int) ($booking->invoices?->where('status', 'paid')->sum('total') ?? 0);
+
+        if ($paidTotal <= 0) {
+            return 'unpaid';
+        }
+
+        if ($booking->requires_deposit && $booking->deposit_required_amount > 0 && $booking->deposit_paid_amount < $booking->deposit_required_amount) {
+            return 'partial';
+        }
+
+        return 'paid';
+    }
 }

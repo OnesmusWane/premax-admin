@@ -30,6 +30,14 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
+          <button @click="generateFeedbackLink"
+            class="flex items-center gap-1.5 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50">
+            Generate Feedback Link
+          </button>
+          <button v-if="feedbackLink" @click="copyFeedbackLink"
+            class="flex items-center gap-1.5 border border-gray-200 text-xs font-semibold px-3 py-2 rounded-xl hover:bg-gray-50">
+            {{ feedbackCopied ? 'Copied!' : 'Copy Link' }}
+          </button>
           <button @click="openBookingModal"
             class="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition-colors">
             <CalendarIcon class="w-3.5 h-3.5" /> New Booking
@@ -39,6 +47,9 @@
             <PencilIcon class="w-3.5 h-3.5" /> Edit Profile
           </button>
         </div>
+      </div>
+      <div v-if="feedbackLink" class="mt-4 bg-gray-50 rounded-xl px-4 py-3 text-xs text-gray-600 font-mono break-all">
+        {{ feedbackLink }}
       </div>
 
       <!-- Tabs -->
@@ -131,7 +142,7 @@
         <table class="w-full text-xs">
           <thead class="bg-gray-50 border-b border-gray-100">
             <tr>
-              <th v-for="h in ['Reference','Date','Vehicle','Service','Invoice','Status']" :key="h"
+              <th v-for="h in ['Reference','Date','Vehicle','Service','Payment','Status']" :key="h"
                 class="text-left px-4 py-3 text-[10px] font-semibold text-gray-500 uppercase">{{ h }}</th>
             </tr>
           </thead>
@@ -142,22 +153,32 @@
               <td class="px-4 py-3 font-mono font-semibold text-gray-800">{{ b.vehicle?.registration ?? '—' }}</td>
               <td class="px-4 py-3 text-gray-700">{{ b.service?.name ?? '—' }}</td>
               <td class="px-4 py-3">
-                <div v-if="b.invoices?.length" class="space-y-0.5">
-                  <div v-for="inv in b.invoices" :key="inv.id" class="flex items-center gap-1.5">
-                    <span class="font-semibold text-gray-900">KES {{ inv.total?.toLocaleString() }}</span>
-                    <span class="text-gray-400 capitalize">· {{ inv.payment_method }}</span>
-                    <button @click="printInvoice(inv.id)"
-                      class="text-[10px] text-blue-500 hover:underline">Print</button>
-                  </div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span :class="paymentStatusBadge(b.payment_summary?.status)">
+                    {{ paymentStatusLabel(b.payment_summary?.status) }}
+                  </span>
+                  <span v-if="b.deposit?.required" :class="['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+                    b.deposit?.is_paid ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700']">
+                    Deposit {{ b.deposit?.is_paid ? 'Paid' : 'Pending' }}
+                  </span>
                 </div>
-                <span v-else class="text-gray-400 italic">—</span>
+                <div v-if="b.invoices?.length" class="text-[10px] text-gray-500 mt-1">
+                  KES {{ b.payment_summary?.paid_total?.toLocaleString() ?? 0 }} collected
+                </div>
+                <div v-else class="text-gray-400 italic">No payment</div>
               </td>
               <td class="px-4 py-3">
-                <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
-                  :style="`background:${statusColor(b.status?.slug)}20; color:${statusColor(b.status?.slug)}`">
-                  <span class="w-1.5 h-1.5 rounded-full" :style="`background:${statusColor(b.status?.slug)}`" />
-                  {{ b.status?.name ?? '—' }}
-                </span>
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full"
+                    :style="`background:${statusColor(b.status?.slug)}20; color:${statusColor(b.status?.slug)}`">
+                    <span class="w-1.5 h-1.5 rounded-full" :style="`background:${statusColor(b.status?.slug)}`" />
+                    {{ b.status?.name ?? '—' }}
+                  </span>
+                  <span v-if="b.checklist" :class="['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+                    b.checklist.status === 'check_out' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700']">
+                    {{ b.checklist.status === 'check_out' ? 'Out' : 'In' }}
+                  </span>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -345,6 +366,8 @@ const vehicleForm      = ref({ registration:'', make:'', model:'', year:'', colo
 
 // Booking modal
 const showBookingModal = ref(false)
+const feedbackLink = ref('')
+const feedbackCopied = ref(false)
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 const fmtDate  = d => d ? new Date(d).toLocaleDateString('en-KE',{day:'2-digit',month:'short',year:'numeric'}) : '—'
@@ -354,6 +377,9 @@ const avatarColor = name => colors[(name?.charCodeAt(0)??0) % colors.length]
 const statusColors = { pending:'#EAB308',confirmed:'#3B82F6',in_progress:'#F97316',completed:'#22C55E',cancelled:'#EF4444',no_show:'#6B7280' }
 const statusColor  = slug => statusColors[slug] ?? '#6B7280'
 const printInvoice = id => window.open(`/print/invoice/${id}`, '_blank')
+const paymentStatusLabel = status => ({ unpaid:'Unpaid', partial:'Partial', paid:'Paid' }[status] ?? 'Unpaid')
+const paymentStatusBadge = status => ['inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full',
+  status === 'paid' ? 'bg-green-100 text-green-700' : status === 'partial' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600']
 
 const tabs = computed(() => [
   { key:'overview',  label:'Overview' },
@@ -472,5 +498,27 @@ async function onBookingSaved() {
   history.value = []
   loadHistory()
   loadProfile()
+}
+
+async function generateFeedbackLink() {
+  try {
+    const data = await post('/admin/feedback/generate-token', {
+      customer_name: customer.value?.name,
+      customer_phone: customer.value?.phone,
+      vehicle_reg: vehicles.value?.[0]?.registration,
+    })
+    feedbackLink.value = data.link
+    feedbackCopied.value = false
+    toast.success('Feedback link generated.')
+  } catch (e) {
+    toast.error(e.response?.data?.message ?? 'Failed to generate feedback link.')
+  }
+}
+
+async function copyFeedbackLink() {
+  if (!feedbackLink.value) return
+  await navigator.clipboard.writeText(feedbackLink.value)
+  feedbackCopied.value = true
+  setTimeout(() => { feedbackCopied.value = false }, 2000)
 }
 </script>

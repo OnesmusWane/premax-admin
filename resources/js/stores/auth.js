@@ -7,16 +7,50 @@ export const useAuthStore = defineStore('auth', () => {
     const token = ref(localStorage.getItem('admin_token'))
 
     const isLoggedIn = computed(() => !!token.value && !!user.value)
+    const permissionSlugs = computed(() => user.value?.permission_slugs ?? [])
 
     async function login(email, password) {
         const { data } = await axios.post('/admin/login', { email, password })
+        if (data.token && data.user) {
+            applySession(data.token, data.user)
+        }
+        return data
+    }
 
-        // Store token
-        token.value = data.token
-        localStorage.setItem('admin_token', data.token)
+    async function verifyTwoFactor(challengeToken, code) {
+        const { data } = await axios.post('/admin/2fa/verify', {
+            challenge_token: challengeToken,
+            code,
+        })
 
-        // Store user directly from login response — no extra request needed
-        user.value = data.user
+        if (data.token && data.user) {
+            applySession(data.token, data.user)
+        }
+
+        return data
+    }
+
+    async function requestPasswordReset(email) {
+        const { data } = await axios.post('/admin/password/email', { email })
+        return data
+    }
+
+    async function resetPassword(payload) {
+        const { data } = await axios.post('/admin/password/reset', payload)
+        return data
+    }
+
+    async function requestTwoFactorRecovery(email) {
+        const { data } = await axios.post('/admin/2fa/recovery/request', { email })
+        return data
+    }
+
+    async function verifyTwoFactorRecovery(challengeToken, code) {
+        const { data } = await axios.post('/admin/2fa/recovery/verify', {
+            challenge_token: challengeToken,
+            code,
+        })
+        return data
     }
 
     async function tryRestore() {
@@ -39,10 +73,38 @@ export const useAuthStore = defineStore('auth', () => {
 
     async function logout() {
         await axios.post('/admin/logout').catch(() => {})
+        clearSession()
+    }
+
+    function applySession(nextToken, nextUser) {
+        token.value = nextToken
+        user.value = nextUser
+        localStorage.setItem('admin_token', nextToken)
+    }
+
+    function clearSession() {
         token.value = null
         user.value  = null
         localStorage.removeItem('admin_token')
     }
 
-    return { user, token, isLoggedIn, login, logout, tryRestore }
+    function hasPermission(permission) {
+        return permissionSlugs.value.includes(permission)
+    }
+
+    return {
+        user,
+        token,
+        isLoggedIn,
+        permissionSlugs,
+        login,
+        verifyTwoFactor,
+        requestPasswordReset,
+        resetPassword,
+        requestTwoFactorRecovery,
+        verifyTwoFactorRecovery,
+        logout,
+        tryRestore,
+        hasPermission,
+    }
 })

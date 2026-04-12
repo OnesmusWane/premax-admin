@@ -3,191 +3,174 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-use App\Models\Setting;
 use App\Models\MpesaTransaction;
+use App\Support\KopoKopoService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+
 class MpesaController extends Controller
 {
+    public function __construct(private KopoKopoService $kopoKopo)
+    {
+    }
+
     /**
      * POST /api/admin/mpesa/stk-push
-     * Sends an STK push to the customer's phone.
+     * Sends an M-PESA collection request via KopoKopo.
      */
     public function stkPush(Request $request)
-{
-    $request->validate([
-        'phone'  => 'required|string',
-        'amount' => 'required|integer|min:1',
-    ]);
+    {
+        $request->validate([
+            'phone' => 'required|string',
+            'amount' => 'required|integer|min:1',
+            'booking_id' => 'nullable',
+            'reference' => 'nullable|string|max:100',
+            'customer_name' => 'nullable|string|max:150',
+        ]);
 
-    // Format phone to 254XXXXXXXXX
-    $phone = preg_replace('/\s+/', '', $request->phone);
-    $phone = ltrim($phone, '+');
-    if (str_starts_with($phone, '0')) {
-        $phone = '254' . substr($phone, 1);
-    }
-
-    $amount  = (int) $request->amount;
-    $env     = Setting::where('key', 'mpesa_env')->value('value') ?? 'sandbox';
-    $consKey = Setting::where('key', 'mpesa_consumer_key')->value('value');
-    $consSec = Setting::where('key', 'mpesa_consumer_secret')->value('value');
-
-    // Sandbox uses fixed shortcode & passkey; production uses your real paybill & passkey
-    if ($env === 'production') {
-        $shortcode = Setting::where('key', 'mpesa_paybill')->value('value');
-        $passkey   = Setting::where('key', 'mpesa_passkey')->value('value');
-    } else {
-        $shortcode = '174379';
-        $passkey   = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919';
-    }
-
-    if (!$shortcode || !$consKey || !$consSec) {
-        return response()->json([
-            'message' => 'M-Pesa is not configured. Please update Settings.',
-        ], 422);
-    }
-
-    $baseUrl = $env === 'production'
-        ? 'https://api.safaricom.co.ke'
-        : 'https://sandbox.safaricom.co.ke';
-
-    try {
-        // 1. Get access token
-        $tokenRes = Http::withBasicAuth($consKey, $consSec)
-            ->get("{$baseUrl}/oauth/v1/generate?grant_type=client_credentials");
-
-        if (!$tokenRes->successful()) {
-            Log::error('M-Pesa token error', $tokenRes->json());
-            return response()->json(['message' => 'Failed to get M-Pesa token.'], 502);
+        if (!$this->kopoKopo->isConfigured()) {
+            return response()->json([
+                'message' => 'KopoKopo is not configured. Please update Settings.',
+            ], 422);
         }
 
-        $token = $tokenRes->json('access_token');
+        $phone = $this->formatPhone($request->phone);
+        $reference = $request->reference ?: ($request->booking_id ? 'BOOKING-' . $request->booking_id : 'POS-' . now()->format('YmdHis'));
 
-        // 2. Build password: base64(shortcode + passkey + timestamp)
-        $timestamp = now()->format('YmdHis');
-        $password  = base64_encode($shortcode . $passkey . $timestamp);
-
-        // 3. STK Push request
-        $stkRes = Http::withToken($token)
-            ->post("{$baseUrl}/mpesa/stkpush/v1/processrequest", [
-                'BusinessShortCode' => $shortcode,
-                'Password'          => $password,
-                'Timestamp'         => $timestamp,
-                'TransactionType'   => 'CustomerPayBillOnline',
-                'Amount'            => $amount,
-                'PartyA'            => $phone,
-                'PartyB'            => $shortcode,
-                'PhoneNumber'       => $phone,
-                'CallBackURL'       => url('/api/admin/mpesa/callback'),
-                'AccountReference'  => 'PremaxAutocare',
-                'TransactionDesc'   => 'Service Payment',
+        try {
+            $response = $this->kopoKopo->initiateIncomingPayment([
+                'payment_channel' => 'M-PESA STK Push',
+                'till_number' => $this->kopoKopo->tillNumber(),
+                'subscriber' => [
+                    'first_name' => strtok($request->customer_name ?: 'Anonymous', ' '),
+                    'last_name' => trim(str_replace(strtok($request->customer_name ?: 'Anonymous', ' '), '', $request->customer_name ?: '')) ?: 'Client',
+                    'phone_number' => $phone,
+                ],
+                'amount' => [
+                    'currency' => 'KES',
+                    'value' => (int) $request->amount,
+                ],
+                'metadata' => [
+                    'reference' => $reference,
+                    'notes' => 'Premax payment collection',
+                ],
+                '_links' => [
+                    'callback_url' => url('/api/admin/mpesa/callback'),
+                ],
             ]);
 
-        if ($stkRes->successful()) {
-            $checkoutId = $stkRes->json('CheckoutRequestID');
+            $location = $response['location'];
+            $checkoutId = basename(parse_url($location, PHP_URL_PATH));
 
-            // Save immediately as pending so polling can find it
             MpesaTransaction::updateOrCreate(
                 ['checkout_request_id' => $checkoutId],
                 [
-                    'phone'  => $phone,
-                    'amount' => $amount,
+                    'provider' => 'kopokopo',
+                    'location' => $location,
+                    'internal_reference' => $reference,
+                    'phone' => $phone,
+                    'amount' => (int) $request->amount,
                     'status' => 'pending',
                 ]
             );
+
             return response()->json([
-                'message'          => 'STK push sent. Please check your phone.',
-                'checkout_request' => $stkRes->json('CheckoutRequestID'),
+                'message' => 'Payment prompt sent. Please check the customer phone.',
+                'checkout_request' => $checkoutId,
             ]);
+        } catch (\Throwable $e) {
+            Log::error('KopoKopo STK request failed', ['message' => $e->getMessage()]);
+
+            return response()->json([
+                'message' => 'Failed to send payment prompt.',
+            ], 502);
         }
-
-        Log::error('M-Pesa STK push failed', $stkRes->json());
-        return response()->json([
-            'message' => $stkRes->json('errorMessage') ?? 'STK push failed.',
-        ], 502);
-
-    } catch (\Exception $e) {
-        Log::error('M-Pesa exception: ' . $e->getMessage());
-        return response()->json(['message' => 'M-Pesa request failed.'], 500);
     }
-}
 
     /**
      * POST /api/admin/mpesa/callback
-     * Safaricom calls this after payment.
-     * Logs the result — you can extend to auto-confirm invoices.
+     * KopoKopo webhook callback.
      */
     public function callback(Request $request)
     {
-        Log::info('M-Pesa callback received', $request->all());
+        Log::info('KopoKopo callback received', $request->all());
 
-        $body    = $request->input('Body.stkCallback');
-        $code    = $body['ResultCode'] ?? null;
-        $checkId = $body['CheckoutRequestID'] ?? null;
+        $resource = $request->input('data.attributes.event.resource', []);
+        $reference = $resource['reference'] ?? null;
+        $status = strtolower($request->input('data.attributes.status', 'pending'));
+        $phone = $resource['sender_phone_number'] ?? null;
+        $amount = $resource['amount'] ?? null;
+        $location = $request->input('data.links.self') ?? $request->input('data.attributes._links.self');
+        $checkoutId = $reference ?: ($location ? basename(parse_url($location, PHP_URL_PATH)) : null);
 
-        if (!$checkId) {
-            Log::warning('M-Pesa callback missing CheckoutRequestID');
-            return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
+        if (!$checkoutId) {
+            return response()->json(['message' => 'Accepted']);
         }
 
-        if ($code === 0) {
-            // ── Payment successful ──────────────────────────────────────────
-            $items    = collect($body['CallbackMetadata']['Item'] ?? []);
-            $amount   = $items->firstWhere('Name', 'Amount')['Value']             ?? null;
-            $mpesaRef = $items->firstWhere('Name', 'MpesaReceiptNumber')['Value'] ?? null;
-            $phone    = (string) ($items->firstWhere('Name', 'PhoneNumber')['Value'] ?? null);
+        MpesaTransaction::updateOrCreate(
+            ['checkout_request_id' => $checkoutId],
+            [
+                'provider' => 'kopokopo',
+                'location' => $location,
+                'mpesa_receipt_number' => $reference,
+                'phone' => $phone,
+                'amount' => $amount,
+                'status' => $status === 'success' ? 'success' : ($status === 'failed' ? 'failed' : 'pending'),
+                'result_desc' => $request->input('data.attributes.event.type'),
+                'callback_payload' => $request->all(),
+            ]
+        );
 
-            Log::info("M-Pesa payment confirmed: {$mpesaRef} — KES {$amount} from {$phone}");
-
-            // Save to mpesa_transactions table
-            MpesaTransaction::updateOrCreate(
-                ['checkout_request_id' => $checkId],
-                [
-                    'mpesa_receipt_number' => $mpesaRef,
-                    'phone'                => $phone,
-                    'amount'               => $amount,
-                    'status'               => 'success',
-                    'result_code'          => $code,
-                    'result_desc'          => $body['ResultDesc'] ?? 'Success',
-                ]
-            );
-
-        } else {
-            // ── Payment failed or cancelled ─────────────────────────────────
-            $desc = $body['ResultDesc'] ?? 'Failed';
-            Log::warning("M-Pesa payment failed: {$desc} (CheckoutRequestID: {$checkId})");
-
-            MpesaTransaction::updateOrCreate(
-                ['checkout_request_id' => $checkId],
-                [
-                    'status'      => 'failed',
-                    'result_code' => $code,
-                    'result_desc' => $desc,
-                ]
-            );
-        }
-
-        // Always respond with 0 — tells Safaricom you received the callback
-        return response()->json(['ResultCode' => 0, 'ResultDesc' => 'Accepted']);
+        return response()->json(['message' => 'Accepted']);
     }
-        public function checkStatus(Request $request)
-        {
-            $request->validate([
-                'checkout_request_id' => 'required|string',
-            ]);
 
-            $tx = MpesaTransaction::where('checkout_request_id', $request->checkout_request_id)->first();
+    public function checkStatus(Request $request)
+    {
+        $request->validate([
+            'checkout_request_id' => 'required|string',
+        ]);
 
-            if (!$tx) {
-                return response()->json(['status' => 'pending']);
-            }
+        $tx = MpesaTransaction::where('checkout_request_id', $request->checkout_request_id)->first();
 
-            return response()->json([
-                'status'               => $tx->status,
-                'mpesa_receipt_number' => $tx->mpesa_receipt_number,
-                'amount'               => $tx->amount,
-                'result_desc'          => $tx->result_desc,
-            ]);
+        if (!$tx) {
+            return response()->json(['status' => 'pending']);
         }
+
+        if ($tx->status === 'pending' && $tx->location && $this->kopoKopo->isConfigured()) {
+            try {
+                $statusPayload = $this->kopoKopo->paymentStatus($tx->location);
+                $remoteStatus = strtolower($statusPayload['data']['attributes']['status'] ?? 'pending');
+                $resource = $statusPayload['data']['attributes']['event']['resource'] ?? [];
+
+                $tx->update([
+                    'status' => $remoteStatus === 'success' ? 'success' : ($remoteStatus === 'failed' ? 'failed' : 'pending'),
+                    'mpesa_receipt_number' => $resource['reference'] ?? $tx->mpesa_receipt_number,
+                    'phone' => $resource['sender_phone_number'] ?? $tx->phone,
+                    'amount' => $resource['amount'] ?? $tx->amount,
+                    'callback_payload' => $statusPayload,
+                ]);
+            } catch (\Throwable $e) {
+                Log::warning('KopoKopo payment status poll failed', ['message' => $e->getMessage()]);
+            }
+        }
+
+        return response()->json([
+            'status' => $tx->fresh()->status,
+            'mpesa_receipt_number' => $tx->fresh()->mpesa_receipt_number,
+            'amount' => $tx->fresh()->amount,
+            'result_desc' => $tx->fresh()->result_desc,
+        ]);
+    }
+
+    private function formatPhone(string $phone): string
+    {
+        $phone = preg_replace('/\s+/', '', $phone);
+        $phone = ltrim($phone, '+');
+
+        if (str_starts_with($phone, '0')) {
+            $phone = '254' . substr($phone, 1);
+        }
+
+        return '+' . $phone;
+    }
 }

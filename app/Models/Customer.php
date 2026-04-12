@@ -9,8 +9,8 @@ use App\Models\Vehicle;
  
 class Customer extends Model {
     use SoftDeletes;
-    protected $fillable = ['name','phone','email','initials','avatar_color','avatar_url','member_since','notes','is_active'];
-    protected $casts    = ['is_active'=>'boolean','member_since'=>'date'];
+    protected $fillable = ['name','phone','email','initials','avatar_color','avatar_url','member_since','notes','is_active','is_anonymous'];
+    protected $casts    = ['is_active'=>'boolean','member_since'=>'date','is_anonymous'=>'boolean'];
  
     public function vehicles(): HasMany { return $this->hasMany(Vehicle::class); }
     public function invoices(): HasMany { return $this->hasMany(Invoice::class); }

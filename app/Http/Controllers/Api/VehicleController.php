@@ -94,6 +94,7 @@ class VehicleController extends Controller
             ->latest('scheduled_at')
             ->get()
             ->map(function ($b) {
+                $paidTotal = (int) $b->invoices->where('status', 'paid')->sum('total');
                 return [
                     'id'           => $b->id,
                     'reference'    => $b->reference,
@@ -126,16 +127,28 @@ class VehicleController extends Controller
                     ] : null,
                     // Invoice summary
                     'invoices' => $b->invoices->map(fn($inv) => [
-                    'id'             => $inv->id,
-                    'invoice_number' => $inv->invoice_number,
-                    'total'          => $inv->total,
-                    'payment_method' => $inv->payment_method,
-                    'mpesa_reference'=> $inv->mpesa_reference,
-                    'status'         => $inv->status,
-                    'paid_at'        => $inv->paid_at?->toISOString(),
+                        'id'             => $inv->id,
+                        'invoice_number' => $inv->invoice_number,
+                        'total'          => $inv->total,
+                        'sale_type'      => $inv->sale_type,
+                        'payment_method' => $inv->payment_method,
+                        'mpesa_reference'=> $inv->mpesa_reference,
+                        'status'         => $inv->status,
+                        'paid_at'        => $inv->paid_at?->toISOString(),
                     ]),
-                    'total_paid' => $b->invoices->where('status', 'paid')->sum('total'),
-                        ];
+                    'deposit' => [
+                        'required' => (bool) $b->requires_deposit,
+                        'percent'  => $b->deposit_percent,
+                        'required_amount' => $b->deposit_required_amount,
+                        'paid_amount' => $b->deposit_paid_amount,
+                        'outstanding_amount' => max(0, (int) $b->deposit_required_amount - (int) $b->deposit_paid_amount),
+                        'is_paid' => $b->deposit_required_amount > 0 && $b->deposit_paid_amount >= $b->deposit_required_amount,
+                    ],
+                    'payment_summary' => [
+                        'paid_total' => $paidTotal,
+                        'status' => $paidTotal <= 0 ? 'unpaid' : (($b->requires_deposit && $b->deposit_required_amount > 0 && $b->deposit_paid_amount < $b->deposit_required_amount) ? 'partial' : 'paid'),
+                    ],
+                ];
             });
 
         return response()->json($bookings);
