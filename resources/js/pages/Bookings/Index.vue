@@ -10,19 +10,19 @@
 
     <!-- ── TOOLBAR ── -->
     <div class="flex flex-wrap items-center gap-3 px-4 md:px-6">
-      <SearchInput v-model="search" placeholder="Search by name, phone, reg..." class="flex-1 max-w-xs" />
+      <SearchInput v-model="search" placeholder="Search by name, phone, reg..." class="w-full md:min-w-[280px] md:max-w-sm md:flex-1" />
       <select v-model="statusFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-48 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
         <option value="">All Statuses</option>
         <option v-for="s in statuses" :key="s.slug" :value="s.slug">{{ s.name }}</option>
       </select>
       <select v-model="serviceFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-56 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
         <option value="">All Services</option>
         <option v-for="s in services" :key="s.id" :value="s.id">{{ s.name }}</option>
       </select>
       <input type="date" v-model="dateFilter"
-        class="border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
+        class="w-full md:w-44 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-700 bg-white focus:outline-none focus:border-red-400">
       <button v-if="statusFilter || serviceFilter || dateFilter || search" @click="clearFilters"
         class="flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-gray-900 border border-gray-200 rounded-xl px-3 py-2 hover:bg-gray-50 transition-colors">
         <XMarkIcon class="w-3.5 h-3.5" /> Clear

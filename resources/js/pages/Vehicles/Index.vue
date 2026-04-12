@@ -4,10 +4,10 @@
 <template>
   <div class="p-4 md:p-6 space-y-4">
     <PageHeader title="Vehicles" subtitle="All registered vehicles" class="flex flex-col md:flex-row items-start md:items-center md:justify-between">
-      <SearchInput v-model="search" placeholder="Search by reg, make, owner..." class="w-72" />
+      <SearchInput v-model="search" placeholder="Search by reg, make, owner..." class="w-full md:w-[340px]" />
     </PageHeader>
 
-    <div class="mx-4 md:mx-6 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div class="mx-4 md:mx-6 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden table-wrap">
       <table class="w-full text-sm">
         <thead class="bg-gray-50 border-b border-gray-100">
           <tr>
