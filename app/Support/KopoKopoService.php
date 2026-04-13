@@ -49,7 +49,7 @@ class KopoKopoService
     public function baseUrl(): string
     {
         return $this->environment() === 'production'
-            ? 'https://app.kopokopo.com'
+            ? 'https://api.kopokopo.com'
             : 'https://sandbox.kopokopo.com';
     }
 
