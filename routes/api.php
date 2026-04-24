@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\{
     ReviewController,
     FeedbackController as AdminFeedbackController,
     GalleryController,
+    SocialMediaController,
 };
 
 
@@ -34,6 +35,8 @@ Route::post('/admin/2fa/recovery/verify', [AuthController::class, 'verifyTwoFact
 Route::post('/admin/password/email', [AuthController::class, 'sendPasswordResetLink']);
 Route::post('/admin/password/reset', [AuthController::class, 'resetPassword']);
 Route::get('/gallery', [GalleryController::class, 'publicIndex']);
+Route::match(['get', 'post'], '/social-media/oauth/{platform}/{socialAccount}', [SocialMediaController::class, 'oauthCallback']);
+Route::match(['get', 'post'], '/social-media/webhooks/{platform}/{socialAccount}', [SocialMediaController::class, 'webhookCallback']);
 
 // ── Protected (Sanctum) ───────────────────────────────────────────────────────
 Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
@@ -173,5 +176,21 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/gallery',                 [GalleryController::class, 'store'])->middleware('permission:gallery.manage');
     Route::patch('/gallery/{galleryItem}',  [GalleryController::class, 'update'])->middleware('permission:gallery.manage');
     Route::delete('/gallery/{galleryItem}', [GalleryController::class, 'destroy'])->middleware('permission:gallery.manage');
+
+    Route::get('/social-media', [SocialMediaController::class, 'index'])->middleware('permission:social_media.view,social_media.accounts.manage,social_media.inbox.manage,social_media.posts.manage,social_media.engagement.manage');
+    Route::post('/social-media/accounts', [SocialMediaController::class, 'storeAccount'])->middleware('permission:social_media.accounts.manage');
+    Route::patch('/social-media/accounts/{socialAccount}', [SocialMediaController::class, 'updateAccount'])->middleware('permission:social_media.accounts.manage');
+    Route::post('/social-media/accounts/{socialAccount}/sync', [SocialMediaController::class, 'syncAccount'])->middleware('permission:social_media.accounts.manage');
+    Route::post('/social-media/media', [SocialMediaController::class, 'uploadMedia'])->middleware('permission:social_media.posts.manage');
+    Route::post('/social-media/posts', [SocialMediaController::class, 'storePost'])->middleware('permission:social_media.posts.manage');
+    Route::get('/social-media/posts/{socialPost}/comments', [SocialMediaController::class, 'postComments'])->middleware('permission:social_media.engagement.manage');
+    Route::patch('/social-media/posts/{socialPost}', [SocialMediaController::class, 'updatePost'])->middleware('permission:social_media.posts.manage');
+    Route::delete('/social-media/posts/{socialPost}', [SocialMediaController::class, 'destroyPost'])->middleware('permission:social_media.posts.manage');
+    Route::post('/social-media/posts/{socialPost}/publish', [SocialMediaController::class, 'publishPost'])->middleware('permission:social_media.posts.manage');
+    Route::post('/social-media/posts/{socialPost}/sync-interactions', [SocialMediaController::class, 'syncPostInteractions'])->middleware('permission:social_media.engagement.manage');
+    Route::patch('/social-media/comments/{socialComment}', [SocialMediaController::class, 'updateComment'])->middleware('permission:social_media.engagement.manage');
+    Route::post('/social-media/comments/{socialComment}/reply', [SocialMediaController::class, 'replyToComment'])->middleware('permission:social_media.engagement.manage');
+    Route::get('/social-media/conversations/{socialConversation}/messages', [SocialMediaController::class, 'conversationMessages'])->middleware('permission:social_media.inbox.manage');
+    Route::post('/social-media/conversations/{socialConversation}/messages', [SocialMediaController::class, 'sendMessage'])->middleware('permission:social_media.inbox.manage');
 });
 Route::post('/admin/mpesa/callback', [MpesaController::class, 'callback']);

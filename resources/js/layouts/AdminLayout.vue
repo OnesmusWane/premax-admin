@@ -250,7 +250,7 @@ import {
   XMarkIcon, Bars3Icon, ChevronDownIcon,
   UserCircleIcon, PencilSquareIcon, ArrowRightOnRectangleIcon,
   Squares2X2Icon, CalendarDaysIcon, UserGroupIcon,
-  TruckIcon, ShoppingCartIcon, CubeIcon, CreditCardIcon, CogIcon, ChatBubbleLeftIcon, PhotoIcon
+  TruckIcon, ShoppingCartIcon, CubeIcon, CreditCardIcon, CogIcon, ChatBubbleLeftIcon, PhotoIcon, MegaphoneIcon
 } from '@heroicons/vue/24/outline'
 import NavItem           from '@/components/NavItem.vue'
 import QuickBookingModal from '@/components/QuickBookingModal.vue'
@@ -283,7 +283,7 @@ const userInitials = computed(() => {
 })
 
 const pageTitle = computed(() => {
-  const map = { dashboard:'Dashboard', bookings:'Bookings', customers:'Customers', vehicles:'Vehicles', pos:'Point of Sale', inventory:'Inventory', payments:'Payments', gallery:'Gallery', reports:'Reports', settings:'Settings', feedback:'Feedback' }
+  const map = { dashboard:'Dashboard', bookings:'Bookings', customers:'Customers', vehicles:'Vehicles', pos:'Point of Sale', inventory:'Inventory', payments:'Payments', gallery:'Gallery', reports:'Reports', settings:'Settings', feedback:'Feedback', 'social-media':'Social Media Manager' }
   return map[route.path.split('/')[1]] ?? 'Premax Admin'
 })
 
@@ -297,6 +297,7 @@ const allNavItems = [
   { label:'Inventory', to:'/inventory', icon:CubeIcon, permission:'inventory.manage' },
   { label:'Payments',  to:'/payments',  icon:CreditCardIcon, permission:'payments.manage' },
   { label:'Gallery',   to:'/gallery',   icon:PhotoIcon, permission:'gallery.manage' },
+  { label:'Social Media',    to:'/social-media', icon:MegaphoneIcon, permission:'social_media.view' },
   { label:'Feedback',  to:'/feedback',  icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
   { label:'Settings',  to:'/settings',  icon:CogIcon, permission:'settings.manage' },
 ]
@@ -308,6 +309,7 @@ const mobileNavItems = computed(() => [
   { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon, permission:'bookings.manage' },
   { label:'Customers', to:'/customers', icon:UserGroupIcon, permission:'customers.manage' },
   { label:'POS',       to:'/pos',       icon:ShoppingCartIcon, permission:'pos.manage' },
+  { label:'Social',    to:'/social-media', icon:MegaphoneIcon, permission:'social_media.view'},
 ].filter(item => auth.hasPermission(item.permission)))
 
 const moreNavItems = computed(() => [
@@ -315,6 +317,7 @@ const moreNavItems = computed(() => [
   { label:'Inventory', to:'/inventory', icon:CubeIcon, permission:'inventory.manage' },
   { label:'Payments',  to:'/payments',  icon:CreditCardIcon, permission:'payments.manage' },
   { label:'Gallery',   to:'/gallery',   icon:PhotoIcon, permission:'gallery.manage' },
+  { label:'Social',    to:'/social-media', icon:MegaphoneIcon, permission:'social_media.view' },
   { label:'Feedback',  to:'/feedback',  icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
   { label:'Settings',  to:'/settings',  icon:CogIcon, permission:'settings.manage' },
 ].filter(item => auth.hasPermission(item.permission)))

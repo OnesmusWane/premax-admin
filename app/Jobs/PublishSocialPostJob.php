@@ -1,0 +1,154 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Models\SocialPost;
+use App\Models\SocialPostTarget;
+use App\Services\Social\FacebookConnector;
+use App\Support\SocialConnectorRegistry;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+
+class PublishSocialPostJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public int $tries = 3;
+
+    public function __construct(public readonly int $targetId) {}
+
+    public function handle(): void
+    {
+        $target = SocialPostTarget::with(['post', 'account'])->find($this->targetId);
+
+        if (! $target) {
+            return;
+        }
+
+        // Skip targets that are already confirmed published on the platform
+        if ($target->status === 'published' && filled($target->external_post_id)) {
+            return;
+        }
+
+        $account = $target->account;
+        $post = $target->post;
+
+        if (! $account || ! $post) {
+            return;
+        }
+
+        $logContext = [
+            'platform'     => $account->platform,
+            'account_id'   => $account->id,
+            'account_name' => $account->name,
+            'post_id'      => $post->id,
+            'post_title'   => $post->title ?? mb_substr($post->content, 0, 60),
+            'target_id'    => $target->id,
+        ];
+
+        if (! $account->is_active || $account->auth_status !== 'connected') {
+            $reason = "Account \"{$account->name}\" is not connected (status: {$account->auth_status}). Reconnect the account and republish.";
+
+            Log::warning('Social post skipped — account not connected', $logContext + ['reason' => $reason]);
+
+            $target->update([
+                'status' => 'failed',
+                'failure_reason' => $reason,
+                'published_at' => null,
+            ]);
+            $this->syncPostStatus($post->fresh());
+
+            return;
+        }
+
+        try {
+            $connector = SocialConnectorRegistry::make($account);
+            $externalId = $connector->publish($post, $target);
+
+            $target->update([
+                'status' => 'published',
+                'external_post_id' => filled($externalId) ? $externalId : null,
+                'published_at' => now(),
+                'failure_reason' => null,
+            ]);
+
+            Log::info('Social post published successfully', $logContext + ['external_post_id' => $externalId]);
+        } catch (\Throwable $e) {
+            $failureReason = mb_substr($e->getMessage(), 0, 500);
+
+            if ($account->platform === 'facebook' && FacebookConnector::isExpiredTokenException($e)) {
+                // Attempt a silent token refresh and retry once before giving up
+                $account->refresh();
+
+                if (FacebookConnector::tryRefreshAccount($account)) {
+                    $account->refresh();
+
+                    try {
+                        $freshConnector = SocialConnectorRegistry::make($account);
+                        $externalId = $freshConnector->publish($post, $target);
+
+                        $target->update([
+                            'status'           => 'published',
+                            'external_post_id' => filled($externalId) ? $externalId : null,
+                            'published_at'     => now(),
+                            'failure_reason'   => null,
+                        ]);
+
+                        Log::info('Social post published after token auto-refresh', $logContext + ['external_post_id' => $externalId]);
+                        $this->syncPostStatus($post->fresh());
+
+                        return;
+                    } catch (\Throwable $retryException) {
+                        $failureReason = mb_substr($retryException->getMessage(), 0, 500);
+                    }
+                }
+
+                $account->update([
+                    'auth_status'           => 'expired',
+                    'status'                => 'attention',
+                    'is_active'             => false,
+                    'sync_status'           => 'error',
+                    'sync_error'            => $failureReason,
+                    'last_token_checked_at' => now(),
+                    'last_sync_completed_at' => now(),
+                ]);
+            }
+
+            Log::error('Social post publish failed', $logContext + [
+                'error'     => $failureReason,
+                'exception' => get_class($e),
+            ]);
+
+            $target->update([
+                'status' => 'failed',
+                'failure_reason' => $failureReason,
+                'published_at' => null,
+            ]);
+        }
+
+        $this->syncPostStatus($post->fresh());
+    }
+
+    private function syncPostStatus(SocialPost $post): void
+    {
+        $targets = $post->targets()->get();
+
+        // Wait until all targets have been processed before updating the post
+        $stillPending = $targets->whereIn('status', ['pending', 'scheduled']);
+        if ($stillPending->isNotEmpty()) {
+            return;
+        }
+
+        $hasAnyPublished = $targets->contains(fn ($t) => $t->status === 'published');
+
+        $post->update([
+            'status' => $hasAnyPublished ? 'published' : 'failed',
+            'published_at' => $hasAnyPublished ? ($post->published_at ?? now()) : null,
+            'failure_reason' => $hasAnyPublished ? null : 'All publish attempts failed. Check account credentials and try again.',
+        ]);
+    }
+}

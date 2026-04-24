@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php artisan *)",
+      "Bash(php -l app/Support/SocialConnectorRegistry.php)",
+      "Bash(php -l app/Services/Social/InstagramConnector.php app/Support/SocialConnectorRegistry.php app/Http/Controllers/Api/SocialMediaController.php)"
+    ],
+    "additionalDirectories": [
+      "/home/onesmus/Wane/premax-admin/app/Services/Social"
+    ]
+  }
+}

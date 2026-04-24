@@ -1,10 +1,13 @@
 <?php
 
+use App\Jobs\ProcessScheduledSocialPostsJob;
+use App\Jobs\RefreshExpiringSocialTokensJob;
 use App\Models\Role;
 use App\Models\User;
 use Database\Seeders\AccessControlSeeder;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -104,3 +107,9 @@ Artisan::command('access-control:backfill-users {--email=* : Limit the sync to o
 
     return 0;
 })->purpose('Backfill role links for existing users so role-based permissions work');
+
+// Check every minute for scheduled social media posts that are due and dispatch publish jobs
+Schedule::job(new ProcessScheduledSocialPostsJob)->everyMinute();
+
+// Proactively refresh Facebook tokens expiring within 7 days so posts never fail mid-publish
+Schedule::job(new RefreshExpiringSocialTokensJob)->daily();

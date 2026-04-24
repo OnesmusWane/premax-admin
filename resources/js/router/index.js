@@ -25,6 +25,7 @@ const routes = [
             { path: 'inventory',   name: 'inventory',  component: () => import('@/pages/Inventory/Index.vue'), meta: { permission: 'inventory.manage' } },
             { path: 'payments',   name: 'payments',  component: () => import('@/pages/Payments/Index.vue'), meta: { permission: 'payments.manage' } },
             { path: 'gallery',    name: 'gallery',   component: () => import('@/pages/Gallery/Index.vue'), meta: { permission: 'gallery.manage' } },
+            { path: 'social-media', name: 'social-media', component: () => import('@/pages/SocialMedia/Index.vue'),  },
             { path: 'reports',   name: 'reports',  component: () => import('@/pages/Reports/Index.vue'), meta: { permission: 'reports.view' } },
             { path: 'settings',   name: 'settings',  component: () => import('@/pages/Settings/Index.vue'), meta: { permission: 'settings.manage' } },
             { path: 'feedback',   name: 'feedback',  component: () => import('@/pages/Feedback/Index.vue'), meta: { permission: 'feedback.manage' } },
