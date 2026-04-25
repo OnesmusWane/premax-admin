@@ -227,6 +227,88 @@ class FacebookConnector implements SocialPlatformPublisher
     }
 
     /**
+     * Build the Facebook OAuth dialog URL. Redirect the user's browser to this URL.
+     * After approval Facebook redirects to $redirectUri with a ?code= parameter.
+     */
+    public function getOAuthUrl(string $redirectUri, string $state): string
+    {
+        $scopes = implode(',', [
+            'pages_manage_posts',
+            'pages_read_engagement',
+            'pages_manage_metadata',
+            'pages_show_list',
+            'pages_manage_engagement',
+            'instagram_basic',
+            'instagram_content_publish',
+            'instagram_manage_comments',
+            'instagram_manage_insights',
+        ]);
+
+        return 'https://www.facebook.com/v25.0/dialog/oauth?' . http_build_query([
+            'client_id'     => $this->credentials['app_id'],
+            'redirect_uri'  => $redirectUri,
+            'scope'         => $scopes,
+            'response_type' => 'code',
+            'state'         => $state,
+        ]);
+    }
+
+    /**
+     * After the OAuth callback: exchange code → short-lived token → long-lived token → page token.
+     * Stores and returns all three so the account credentials can be populated automatically.
+     */
+    public function exchangeCodeForTokens(string $code, string $redirectUri): array
+    {
+        $appId     = $this->credentials['app_id'];
+        $appSecret = $this->credentials['app_secret'];
+
+        // Step 1: exchange authorization code for short-lived user token
+        $response = Http::get(self::BASE_URL . '/oauth/access_token', [
+            'client_id'     => $appId,
+            'client_secret' => $appSecret,
+            'redirect_uri'  => $redirectUri,
+            'code'          => $code,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Code exchange failed: ' . ($response->json('error.message') ?? $response->body()));
+        }
+
+        $shortLivedToken = $response->json('access_token');
+
+        // Step 2: exchange short-lived user token for long-lived user token (~60 days)
+        $longLivedResult = self::exchangeLongLivedToken($appId, $appSecret, $shortLivedToken);
+        $longLivedToken  = $longLivedResult['access_token'];
+        $expiresIn       = (int) ($longLivedResult['expires_in'] ?? 0);
+
+        // Step 3: fetch non-expiring page access token
+        $pageId    = $this->credentials['page_id'] ?? '';
+        $pageToken = filled($pageId) ? $this->exchangeForPageToken($pageId, $longLivedToken) : null;
+
+        return [
+            'user_access_token' => $longLivedToken,
+            'page_access_token' => $pageToken,
+            'expires_in'        => $expiresIn,
+        ];
+    }
+
+    /**
+     * Re-fetch the page access token using the stored user_access_token.
+     * Use this when the page token has been invalidated but the user token is still valid.
+     */
+    public function regeneratePageToken(): string
+    {
+        $userToken = trim((string) ($this->credentials['user_access_token'] ?? ''));
+        $pageId    = trim((string) ($this->credentials['page_id'] ?? ''));
+
+        if (! filled($userToken) || ! filled($pageId)) {
+            throw new RuntimeException('Cannot regenerate page token — user_access_token and page_id are both required.');
+        }
+
+        return $this->exchangeForPageToken($pageId, $userToken);
+    }
+
+    /**
      * Exchange any user token (short-lived or long-lived) for a long-lived token (~60 days).
      * Returns the full response array including 'access_token' and 'expires_in'.
      * Requires app_id and app_secret stored in credentials.

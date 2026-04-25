@@ -35,7 +35,7 @@ Route::post('/admin/2fa/recovery/verify', [AuthController::class, 'verifyTwoFact
 Route::post('/admin/password/email', [AuthController::class, 'sendPasswordResetLink']);
 Route::post('/admin/password/reset', [AuthController::class, 'resetPassword']);
 Route::get('/gallery', [GalleryController::class, 'publicIndex']);
-Route::match(['get', 'post'], '/social-media/oauth/{platform}/{socialAccount}', [SocialMediaController::class, 'oauthCallback']);
+Route::get('/social-media/oauth/{platform}/{socialAccount}', [SocialMediaController::class, 'oauthCallback']);
 Route::match(['get', 'post'], '/social-media/webhooks/{platform}/{socialAccount}', [SocialMediaController::class, 'webhookCallback']);
 
 // ── Protected (Sanctum) ───────────────────────────────────────────────────────
@@ -181,6 +181,9 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/social-media/accounts', [SocialMediaController::class, 'storeAccount'])->middleware('permission:social_media.accounts.manage');
     Route::patch('/social-media/accounts/{socialAccount}', [SocialMediaController::class, 'updateAccount'])->middleware('permission:social_media.accounts.manage');
     Route::post('/social-media/accounts/{socialAccount}/sync', [SocialMediaController::class, 'syncAccount'])->middleware('permission:social_media.accounts.manage');
+    Route::post('/social-media/accounts/{socialAccount}/refresh-token', [SocialMediaController::class, 'refreshToken'])->middleware('permission:social_media.accounts.manage');
+    Route::get('/social-media/accounts/{socialAccount}/oauth-url', [SocialMediaController::class, 'getOAuthRedirectUrl'])->middleware('permission:social_media.accounts.manage');
+    Route::post('/social-media/accounts/{socialAccount}/regenerate-page-token', [SocialMediaController::class, 'regeneratePageToken'])->middleware('permission:social_media.accounts.manage');
     Route::post('/social-media/media', [SocialMediaController::class, 'uploadMedia'])->middleware('permission:social_media.posts.manage');
     Route::post('/social-media/posts', [SocialMediaController::class, 'storePost'])->middleware('permission:social_media.posts.manage');
     Route::get('/social-media/posts/{socialPost}/comments', [SocialMediaController::class, 'postComments'])->middleware('permission:social_media.engagement.manage');

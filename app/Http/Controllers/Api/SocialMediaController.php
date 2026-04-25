@@ -273,32 +273,194 @@ class SocialMediaController extends Controller
         return response()->json($this->serializeAccount($socialAccount->fresh()));
     }
 
+    public function refreshToken(SocialAccount $socialAccount)
+    {
+        if ($socialAccount->platform !== 'facebook') {
+            throw ValidationException::withMessages([
+                'platform' => ['Token refresh is only supported for Facebook accounts.'],
+            ]);
+        }
+
+        $creds = $socialAccount->credentials ?? [];
+        $canRefresh = filled($creds['app_id'] ?? '')
+            && filled($creds['app_secret'] ?? '')
+            && filled($creds['user_access_token'] ?? '');
+
+        if (! $canRefresh) {
+            throw ValidationException::withMessages([
+                'credentials' => ['app_id, app_secret, and user_access_token must all be set to refresh the token.'],
+            ]);
+        }
+
+        $refreshed = FacebookConnector::tryRefreshAccount($socialAccount);
+
+        if (! $refreshed) {
+            throw ValidationException::withMessages([
+                'token' => ['Token refresh failed. The current token may be fully expired — update the user_access_token credential and try again.'],
+            ]);
+        }
+
+        return response()->json($this->serializeAccount($socialAccount->fresh()));
+    }
+
+    public function getOAuthRedirectUrl(SocialAccount $socialAccount)
+    {
+        if ($socialAccount->platform !== 'facebook') {
+            throw ValidationException::withMessages([
+                'platform' => ['OAuth is only supported for Facebook accounts.'],
+            ]);
+        }
+
+        $creds = $socialAccount->credentials ?? [];
+
+        if (! filled($creds['app_id'] ?? '') || ! filled($creds['app_secret'] ?? '')) {
+            throw ValidationException::withMessages([
+                'credentials' => ['app_id and app_secret must be saved before starting the OAuth flow.'],
+            ]);
+        }
+
+        $state       = encrypt($socialAccount->id . '|' . now()->timestamp);
+        $redirectUri = url("/api/social-media/oauth/facebook/{$socialAccount->id}");
+        $connector   = new FacebookConnector($creds);
+
+        return response()->json([
+            'oauth_url' => $connector->getOAuthUrl($redirectUri, $state),
+        ]);
+    }
+
     public function oauthCallback(Request $request, string $platform, SocialAccount $socialAccount)
     {
         abort_unless($socialAccount->platform === $platform, 404);
 
-        $metadata = $socialAccount->metadata ?? [];
-        $metadata['oauth_callback'] = [
-            'code' => $request->string('code')->toString(),
-            'state' => $request->string('state')->toString(),
-            'received_at' => now()->toISOString(),
-        ];
+        $frontendBase = rtrim(config('app.url'), '/');
 
-        $socialAccount->update([
-            'auth_status' => 'connected',
-            'status' => 'active',
-            'is_active' => true,
-            'metadata' => $metadata,
-            'sync_status' => 'synced',
-            'sync_error' => null,
-            'last_synced_at' => now(),
-            'last_sync_started_at' => now(),
-            'last_sync_completed_at' => now(),
+        // Facebook redirects here with ?error= if the user denied access
+        if ($request->has('error')) {
+            $socialAccount->update([
+                'auth_status' => 'error',
+                'sync_error'  => $request->input('error_description', 'OAuth access denied by user.'),
+            ]);
+
+            return redirect($frontendBase . '/social-media?oauth=denied');
+        }
+
+        $code        = $request->string('code')->toString();
+        $redirectUri = url("/api/social-media/oauth/{$platform}/{$socialAccount->id}");
+
+        if (! filled($code)) {
+            return redirect($frontendBase . '/social-media?oauth=error&reason=no_code');
+        }
+
+        try {
+            $creds     = $socialAccount->credentials ?? [];
+            $connector = new FacebookConnector($creds);
+            $tokens    = $connector->exchangeCodeForTokens($code, $redirectUri);
+
+            $expiresAt = $tokens['expires_in'] > 0
+                ? now()->addSeconds($tokens['expires_in'])
+                : null;
+
+            $socialAccount->update([
+                'credentials' => array_merge($creds, array_filter([
+                    'user_access_token' => $tokens['user_access_token'],
+                    'page_access_token' => $tokens['page_access_token'],
+                ], fn ($v) => $v !== null)),
+                'auth_status'            => 'connected',
+                'status'                 => 'active',
+                'is_active'              => true,
+                'sync_status'            => 'synced',
+                'sync_error'             => null,
+                'token_expires_at'       => $expiresAt,
+                'last_token_checked_at'  => now(),
+                'last_synced_at'         => now(),
+                'last_sync_started_at'   => now(),
+                'last_sync_completed_at' => now(),
+            ]);
+
+            // Sync the same page token to any linked Instagram account
+            if (filled($tokens['page_access_token'])) {
+                $this->syncInstagramPageToken($socialAccount, $tokens['page_access_token']);
+            }
+
+            Log::info('Facebook OAuth completed — tokens stored', [
+                'account_id'         => $socialAccount->id,
+                'page_token_fetched' => filled($tokens['page_access_token']),
+                'expires_at'         => $expiresAt?->toIso8601String(),
+            ]);
+
+            return redirect($frontendBase . '/social-media?oauth=success');
+        } catch (\Throwable $e) {
+            Log::error('Facebook OAuth callback failed', [
+                'account_id' => $socialAccount->id,
+                'error'      => $e->getMessage(),
+            ]);
+
+            $socialAccount->update([
+                'auth_status' => 'error',
+                'sync_error'  => mb_substr($e->getMessage(), 0, 500),
+            ]);
+
+            return redirect($frontendBase . '/social-media?oauth=error');
+        }
+    }
+
+    public function regeneratePageToken(SocialAccount $socialAccount)
+    {
+        if ($socialAccount->platform !== 'facebook') {
+            throw ValidationException::withMessages([
+                'platform' => ['Page token regeneration is only supported for Facebook accounts.'],
+            ]);
+        }
+
+        try {
+            $connector = new FacebookConnector($socialAccount->credentials ?? []);
+            $pageToken = $connector->regeneratePageToken();
+
+            $socialAccount->update([
+                'credentials' => array_merge($socialAccount->credentials ?? [], [
+                    'page_access_token' => $pageToken,
+                ]),
+                'auth_status'    => 'connected',
+                'status'         => 'active',
+                'sync_error'     => null,
+                'last_synced_at' => now(),
+            ]);
+
+            $this->syncInstagramPageToken($socialAccount, $pageToken);
+
+            return response()->json($this->serializeAccount($socialAccount->fresh()));
+        } catch (\Throwable $e) {
+            throw ValidationException::withMessages([
+                'token' => [$e->getMessage()],
+            ]);
+        }
+    }
+
+    private function syncInstagramPageToken(SocialAccount $fbAccount, string $pageToken): void
+    {
+        $pageId = $fbAccount->credentials['page_id'] ?? null;
+
+        if (! filled($pageId)) {
+            return;
+        }
+
+        $igAccount = SocialAccount::where('platform', 'instagram')
+            ->where('credentials->page_id', $pageId)
+            ->first();
+
+        if (! $igAccount) {
+            return;
+        }
+
+        $igAccount->update([
+            'credentials' => array_merge($igAccount->credentials ?? [], [
+                'access_token' => $pageToken,
+            ]),
         ]);
 
-        return response()->json([
-            'message' => "{$this->platformLabel($platform)} account callback received.",
-            'account' => $this->serializeAccount($socialAccount->fresh()),
+        Log::info('Instagram access_token synced from Facebook OAuth', [
+            'fb_account_id' => $fbAccount->id,
+            'ig_account_id' => $igAccount->id,
         ]);
     }
 

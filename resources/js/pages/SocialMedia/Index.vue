@@ -460,7 +460,7 @@
                   </div>
                 </div>
 
-                <div class="border-t border-slate-100 p-3" :class="account.auth_status === 'connected' ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-2 gap-2'">
+                <div class="border-t border-slate-100 p-3 grid gap-2" :class="account.auth_status === 'connected' ? 'grid-cols-3' : 'grid-cols-2'">
                   <button
                     @click="syncAccount(account)"
                     class="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50"
@@ -481,6 +481,37 @@
                   >
                     {{ account.auth_status === 'connected' ? 'Disconnect' : 'Reconnect' }}
                   </button>
+                </div>
+
+                <div v-if="account.platform === 'facebook'" class="border-t border-slate-100 p-3 space-y-2">
+                  <!-- Primary: Authorize with Facebook — runs full OAuth, auto-populates all tokens -->
+                  <button
+                    @click="connectWithFacebook(account)"
+                    :disabled="connectingOAuthId === account.id"
+                    class="w-full rounded-xl bg-[#1877F2] px-3 py-2.5 text-sm font-bold text-white transition hover:bg-[#1463cc] disabled:opacity-50"
+                  >
+                    {{ connectingOAuthId === account.id ? 'Redirecting…' : '🔗 Authorize with Facebook' }}
+                  </button>
+
+                  <!-- Secondary row: extend the stored user token OR re-fetch the page token -->
+                  <div class="grid grid-cols-2 gap-2">
+                    <button
+                      @click="refreshToken(account)"
+                      :disabled="refreshingTokenId === account.id"
+                      class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                      title="Extend user_access_token by 60 days using the stored token"
+                    >
+                      {{ refreshingTokenId === account.id ? 'Extending…' : 'Extend User Token' }}
+                    </button>
+                    <button
+                      @click="regeneratePageToken(account)"
+                      :disabled="regeneratingPageTokenId === account.id"
+                      class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                      title="Re-fetch page_access_token using the stored user_access_token"
+                    >
+                      {{ regeneratingPageTokenId === account.id ? 'Fetching…' : 'Refresh Page Token' }}
+                    </button>
+                  </div>
                 </div>
               </article>
             </div>
@@ -1127,6 +1158,9 @@ const loading = ref(false)
 const savingPost = ref(false)
 const savingAccount = ref(false)
 const uploadingMedia = ref(false)
+const refreshingTokenId = ref(null)
+const connectingOAuthId = ref(null)
+const regeneratingPageTokenId = ref(null)
 const dragOver = ref(false)
 const fileInputRef = ref(null)
 
@@ -1430,7 +1464,22 @@ watch(filteredConversations, (list) => {
   }
 })
 
-onMounted(loadData)
+onMounted(async () => {
+  // Handle redirect back from Facebook OAuth
+  const oauthResult = route.query.oauth
+  if (oauthResult === 'success') {
+    toast.success('Facebook connected — tokens stored automatically.')
+    router.replace({ query: { ...route.query, oauth: undefined } })
+  } else if (oauthResult === 'denied') {
+    toast.warning('Facebook authorization was cancelled.')
+    router.replace({ query: { ...route.query, oauth: undefined } })
+  } else if (oauthResult === 'error') {
+    toast.error('Facebook OAuth failed. Check logs for details.')
+    router.replace({ query: { ...route.query, oauth: undefined } })
+  }
+
+  await loadData()
+})
 
 watch(activeConversationId, async (id) => {
   if (!id) return
@@ -1822,6 +1871,53 @@ async function syncAccount(account) {
     await loadData()
   } catch (error) {
     toast.error(error.response?.data?.message || error.response?.data?.errors?.account?.[0] || 'Unable to sync account.')
+  }
+}
+
+async function refreshToken(account) {
+  refreshingTokenId.value = account.id
+  try {
+    const updated = await post(`/admin/social-media/accounts/${account.id}/refresh-token`)
+    accounts.value = accounts.value.map((item) => item.id === updated.id ? updated : item)
+    toast.success(`${account.name} access token refreshed — valid for 60 days.`)
+  } catch (error) {
+    const msg = error.response?.data?.errors?.token?.[0]
+      || error.response?.data?.errors?.credentials?.[0]
+      || error.response?.data?.message
+      || 'Token refresh failed. The token may be fully expired — update the credentials manually.'
+    toast.error(msg)
+  } finally {
+    refreshingTokenId.value = null
+  }
+}
+
+async function connectWithFacebook(account) {
+  connectingOAuthId.value = account.id
+  try {
+    const data = await get(`/admin/social-media/accounts/${account.id}/oauth-url`)
+    window.location.href = data.oauth_url
+  } catch (error) {
+    const msg = error.response?.data?.errors?.credentials?.[0]
+      || error.response?.data?.message
+      || 'Could not start Facebook login. Check that app_id and app_secret are saved.'
+    toast.error(msg)
+    connectingOAuthId.value = null
+  }
+}
+
+async function regeneratePageToken(account) {
+  regeneratingPageTokenId.value = account.id
+  try {
+    const updated = await post(`/admin/social-media/accounts/${account.id}/regenerate-page-token`)
+    accounts.value = accounts.value.map((item) => item.id === updated.id ? updated : item)
+    toast.success(`${account.name} page token regenerated.`)
+  } catch (error) {
+    const msg = error.response?.data?.errors?.token?.[0]
+      || error.response?.data?.message
+      || 'Page token regeneration failed. Re-authorize with Facebook if the user token is also expired.'
+    toast.error(msg)
+  } finally {
+    regeneratingPageTokenId.value = null
   }
 }
 

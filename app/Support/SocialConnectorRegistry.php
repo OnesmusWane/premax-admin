@@ -145,6 +145,25 @@ class SocialConnectorRegistry
 
     public static function make(SocialAccount $account): SocialPlatformPublisher
     {
+        // Proactively refresh Facebook tokens that are expired or expire within 48 hours,
+        // so the connector always starts with a valid token rather than failing mid-request.
+        if ($account->platform === 'facebook') {
+            $expiresAt = $account->token_expires_at;
+            $needsRefresh = $expiresAt === null
+                || $expiresAt->isPast()
+                || $expiresAt->diffInHours(now(), true) <= 48;
+
+            $creds = $account->credentials ?? [];
+            $canRefresh = filled($creds['app_id'] ?? '')
+                && filled($creds['app_secret'] ?? '')
+                && filled($creds['user_access_token'] ?? '');
+
+            if ($needsRefresh && $canRefresh) {
+                FacebookConnector::tryRefreshAccount($account);
+                $account->refresh();
+            }
+        }
+
         $credentials = $account->credentials ?? [];
 
         return match ($account->platform) {
