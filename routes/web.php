@@ -17,22 +17,12 @@ Route::get('/media/{path}', function (string $path) {
 })->where('path', '.*')->name('media.public');
 
 // TEMPORARY — remove after debugging
-Route::get('/debug-ig-token', function () {
-    $account = \App\Models\SocialAccount::where('platform', 'instagram')->first();
-    $creds   = $account->credentials;
-
-    $token     = $creds['access_token'] ?? null;
-    $appId     = $creds['app_id'] ?? null;
-    $appSecret = $creds['app_secret'] ?? null;
-
-    $response = \Illuminate\Support\Facades\Http::get('https://graph.facebook.com/v25.0/debug_token', [
-        'input_token'  => $token,
-        'access_token' => "{$appId}|{$appSecret}",
-    ]);
-
+Route::get('/debug-cloudinary', function () {
     return response()->json([
-        'token_start'  => substr($token ?? '', 0, 20) . '...',
-        'debug_result' => $response->json(),
+        'url'    => config('cloudinary.cloud_url'),
+        'cloud'  => config('cloudinary.cloud_name'),
+        'key'    => config('cloudinary.api_key') ? 'set' : 'missing',
+        'secret' => config('cloudinary.api_secret') ? 'set' : 'missing',
     ]);
 });
 
