@@ -470,6 +470,7 @@ class SocialMediaController extends Controller
         }
 
         $igAccount = SocialAccount::where('platform', 'instagram')
+            ->whereRaw('JSON_VALID(`credentials`) = 1')
             ->where('credentials->page_id', $pageId)
             ->first();
 
