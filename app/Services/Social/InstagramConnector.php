@@ -74,18 +74,102 @@ class InstagramConnector implements SocialPlatformPublisher
 
     public function updatePublishedPost(SocialPost $post, SocialPostTarget $target): void
     {
-        throw new RuntimeException(
-            'Instagram published post editing is not supported by this connector workflow. ' .
-            'Create a new post instead.'
-        );
+        $token = trim((string) ($this->credentials['access_token'] ?? ''));
+
+        if (! filled($token)) {
+            throw new RuntimeException(
+                'Instagram access_token is required to update posts.'
+            );
+        }
+
+        $mediaId = trim((string) ($target->external_post_id ?? ''));
+
+        if (! filled($mediaId)) {
+            throw new RuntimeException(
+                'No external_post_id found on this target — post may not have been published yet.'
+            );
+        }
+
+        // Instagram only supports updating the caption
+        $response = Http::post(self::BASE_URL . "/{$mediaId}", [
+            'caption'      => $post->content,
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            $errorMsg = $response->json('error.message') ?? $response->body();
+
+            Log::warning('Instagram update failed', [
+                'media_id'  => $mediaId,
+                'target_id' => $target->id,
+                'error'     => $errorMsg,
+            ]);
+
+            throw new RuntimeException(
+                "[HTTP {$response->status()}] Instagram update failed: {$errorMsg}"
+            );
+        }
+
+        Log::info('Instagram post updated successfully', [
+            'media_id'  => $mediaId,
+            'target_id' => $target->id,
+        ]);
     }
 
     public function deletePublishedPost(SocialPostTarget $target): void
-    {
-        throw new RuntimeException(
-            'Instagram published post deletion is not supported by this connector workflow.'
-        );
-    }
+        {
+            $token = trim((string) ($this->credentials['access_token'] ?? ''));
+
+            if (! filled($token)) {
+                throw new RuntimeException(
+                    'Instagram access_token is required to delete posts.'
+                );
+            }
+
+            $mediaId = trim((string) ($target->external_post_id ?? ''));
+
+            if (! filled($mediaId)) {
+                // No external ID means it was never published — nothing to delete
+                Log::info('Instagram delete skipped — no external_post_id', [
+                    'target_id' => $target->id,
+                ]);
+                return;
+            }
+
+            $response = Http::delete(self::BASE_URL . "/{$mediaId}", [
+                'access_token' => $token,
+            ]);
+
+            if (! $response->successful()) {
+                $errorCode = $response->json('error.code');
+                $errorMsg  = $response->json('error.message') ?? $response->body();
+
+                // If post not found — already deleted, treat as success
+                if ($errorCode === 100 || $response->status() === 404) {
+                    Log::info('Instagram post already deleted or not found', [
+                        'media_id'  => $mediaId,
+                        'target_id' => $target->id,
+                    ]);
+                    return;
+                }
+
+                Log::warning('Instagram delete failed', [
+                    'media_id'   => $mediaId,
+                    'target_id'  => $target->id,
+                    'error_code' => $errorCode,
+                    'error'      => $errorMsg,
+                ]);
+
+                throw new RuntimeException(
+                    "[HTTP {$response->status()}] Instagram delete failed: {$errorMsg}"
+                );
+            }
+
+            Log::info('Instagram post deleted successfully', [
+                'media_id'  => $mediaId,
+                'target_id' => $target->id,
+            ]);
+        }
 
     public function publishCommentReply(string $platformCommentId, string $message): string
     {
