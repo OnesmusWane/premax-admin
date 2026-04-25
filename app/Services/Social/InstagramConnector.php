@@ -456,7 +456,8 @@ class InstagramConnector implements SocialPlatformPublisher
     }
 
     /**
-     * Sync comments for a published Instagram post into SocialComment records.
+     * Sync likes, shares and comments for a published Instagram post.
+     * Mirrors the structure of FacebookConnector::syncPostInteractions().
      */
     public function syncPostComments(SocialPostTarget $target): array
     {
@@ -468,19 +469,62 @@ class InstagramConnector implements SocialPlatformPublisher
 
         $token = trim((string) ($this->credentials['access_token'] ?? ''));
 
-        $response = Http::get(self::BASE_URL . "/{$externalPostId}/comments", [
+        // ── Step 1: fetch like_count and comments_count from the media node ──
+        $mediaResponse = Http::get(self::BASE_URL . "/{$externalPostId}", [
+            'fields'       => 'like_count,comments_count',
+            'access_token' => $token,
+        ]);
+
+        $likesCount    = 0;
+        $commentsCount = 0;
+
+        if ($mediaResponse->successful()) {
+            $likesCount    = (int) ($mediaResponse->json('like_count') ?? 0);
+            $commentsCount = (int) ($mediaResponse->json('comments_count') ?? 0);
+        } else {
+            Log::warning('Instagram media metrics fetch failed', [
+                'external_post_id' => $externalPostId,
+                'error'            => $mediaResponse->json('error.message') ?? $mediaResponse->body(),
+            ]);
+        }
+
+        // ── Step 2: fetch shares from the insights endpoint ──
+        // Only available for business/creator accounts with instagram_manage_insights scope.
+        // Gracefully skip if the post type doesn't support it.
+        $sharesCount = 0;
+
+        $insightsResponse = Http::get(self::BASE_URL . "/{$externalPostId}/insights", [
+            'metric'       => 'shares',
+            'access_token' => $token,
+        ]);
+
+        if ($insightsResponse->successful()) {
+            $insightsData = collect($insightsResponse->json('data') ?? []);
+            $sharesCount  = (int) ($insightsData->firstWhere('name', 'shares')['values'][0]['value']
+                ?? $insightsData->firstWhere('name', 'shares')['value']
+                ?? 0);
+        }
+
+        // ── Step 3: fetch and upsert comments ──
+        $commentsResponse = Http::get(self::BASE_URL . "/{$externalPostId}/comments", [
             'fields'       => 'id,text,username,timestamp,replies{id,text,username,timestamp}',
             'access_token' => $token,
         ]);
 
-        if (! $response->successful()) {
-            throw new RuntimeException('Instagram comments sync failed: ' . ($response->json('error.message') ?? $response->body()));
+        if (! $commentsResponse->successful()) {
+            throw new RuntimeException('Instagram comments sync failed: ' . ($commentsResponse->json('error.message') ?? $commentsResponse->body()));
         }
 
-        $commentsData = $response->json('data') ?? [];
-        $count = 0;
+        $commentsData   = $commentsResponse->json('data') ?? [];
+        $syncedComments = 0;
 
-        DB::transaction(function () use ($target, $commentsData, &$count) {
+        DB::transaction(function () use ($target, $likesCount, $commentsCount, $sharesCount, $commentsData, &$syncedComments) {
+            $target->update([
+                'likes_count'    => $likesCount,
+                'comments_count' => $commentsCount,
+                'shares_count'   => $sharesCount,
+            ]);
+
             foreach ($commentsData as $comment) {
                 $commentId = (string) ($comment['id'] ?? '');
                 if (! filled($commentId)) {
@@ -498,7 +542,7 @@ class InstagramConnector implements SocialPlatformPublisher
                         'received_at'    => filled($comment['timestamp'] ?? null) ? Carbon::parse($comment['timestamp']) : now(),
                     ]
                 );
-                $count++;
+                $syncedComments++;
 
                 foreach (($comment['replies']['data'] ?? []) as $reply) {
                     $replyId = (string) ($reply['id'] ?? '');
@@ -517,12 +561,17 @@ class InstagramConnector implements SocialPlatformPublisher
                             'received_at'    => filled($reply['timestamp'] ?? null) ? Carbon::parse($reply['timestamp']) : now(),
                         ]
                     );
-                    $count++;
+                    $syncedComments++;
                 }
             }
         });
 
-        return ['synced_comments' => $count];
+        return [
+            'likes_count'     => $likesCount,
+            'comments_count'  => $commentsCount,
+            'shares_count'    => $sharesCount,
+            'synced_comments' => $syncedComments,
+        ];
     }
 
     /**
