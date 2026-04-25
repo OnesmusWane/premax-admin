@@ -26,43 +26,88 @@ class InstagramConnector implements SocialPlatformPublisher
 
     public function __construct(private readonly array $credentials) {}
 
-    public function publish(SocialPost $post, SocialPostTarget $_target): string
+    private function publishSingle(SocialPost $post, string $igUserId, string $token, string $mediaUrl): string
     {
+        $containerPayload = [
+            'caption'      => $post->content,
+            'access_token' => $token,
+        ];
 
-        Log::info('Instagram publish called', [
-        'post_id'    => $post->id,
-        'media'      => $post->media,
-        'media_json' => json_encode($post->media),
-    ]);
-        $igUserId = $this->credentials['business_account_id'] ?? null;
-        $token = $this->credentials['access_token'] ?? null;
-
-        if (! filled($igUserId) || ! filled($token)) {
-            throw new RuntimeException(
-                'Instagram business_account_id and access_token credentials are required to publish. '.
-                'Update the account credentials and try again.'
-            );
+        if ($this->isVideo($mediaUrl)) {
+            $containerPayload['media_type'] = 'VIDEO';
+            $containerPayload['video_url']  = $mediaUrl;
+        } else {
+            $containerPayload['image_url'] = $mediaUrl;
         }
 
-        $media = $post->media ?? [];
+        Log::info('Instagram create container payload', [
+            'ig_user_id' => $igUserId,
+            'media_url'  => $mediaUrl,
+            'is_video'   => $this->isVideo($mediaUrl),
+        ]);
 
-        if (empty($media)) {
-            throw new RuntimeException(
-                'Instagram requires at least one image or video URL in the media field. '.
-                'Add a media URL to the post and try again.'
-            );
-        }
+        // Step 1: Create media container
+        $response = Http::post(self::BASE_URL . "/{$igUserId}/media", $containerPayload);
+        $this->assertSuccess($response, 'create container');
+        $creationId = $response->json('id');
 
-        foreach ($media as $mediaUrl) {
-            $this->assertSupportedFormat($mediaUrl);
-        }
+        Log::info('Instagram container created', ['creation_id' => $creationId]);
 
-        if (count($media) === 1) {
-            return $this->publishSingle($post, $igUserId, $token, $media[0]);
-        }
+        // Step 2: Wait for container to be ready ← ADD THIS
+        $this->waitForContainerReady($creationId, $token);
 
-        return $this->publishCarousel($post, $igUserId, $token, $media);
+        // Step 3: Publish the container
+        return $this->publishContainer($igUserId, $creationId, $token);
     }
+    private function waitForContainerReady(string $creationId, string $token): void
+{
+    $maxAttempts = 10;
+    $delaySeconds = 3;
+
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        sleep($delaySeconds);
+
+        $response = Http::get(self::BASE_URL . "/{$creationId}", [
+            'fields'       => 'status_code,status',
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            Log::warning('Instagram container status check failed', [
+                'attempt'     => $attempt,
+                'creation_id' => $creationId,
+            ]);
+            continue;
+        }
+
+        $statusCode = $response->json('status_code');
+
+        Log::info('Instagram container status', [
+            'attempt'     => $attempt,
+            'creation_id' => $creationId,
+            'status_code' => $statusCode,
+        ]);
+
+        if ($statusCode === 'FINISHED') {
+            Log::info('Instagram container ready', ['creation_id' => $creationId]);
+            return;
+        }
+
+        if ($statusCode === 'ERROR') {
+            throw new RuntimeException(
+                'Instagram media container failed to process. ' .
+                'Check that the image URL is publicly accessible and in a supported format.'
+            );
+        }
+
+        // IN_PROGRESS or other status — keep waiting
+    }
+
+    // If we get here, just try publishing anyway
+    Log::warning('Instagram container status check timed out — attempting publish anyway', [
+        'creation_id' => $creationId,
+    ]);
+}
 
     public function updatePublishedPost(SocialPost $post, SocialPostTarget $target): void
     {
@@ -126,40 +171,45 @@ class InstagramConnector implements SocialPlatformPublisher
     }
 
     private function publishCarousel(SocialPost $post, string $igUserId, string $token, array $mediaUrls): string
-    {
-        // Step 1: Create individual item containers
-        $itemIds = [];
-        foreach ($mediaUrls as $url) {
-            $payload = [
-                'is_carousel_item' => true,
-                'access_token' => $token,
-            ];
+{
+    $itemIds = [];
+    foreach ($mediaUrls as $url) {
+        $payload = [
+            'is_carousel_item' => true,
+            'access_token'     => $token,
+        ];
 
-            if ($this->isVideo($url)) {
-                $payload['media_type'] = 'VIDEO';
-                $payload['video_url'] = $url;
-            } else {
-                $payload['image_url'] = $url;
-            }
-
-            $response = Http::post(self::BASE_URL."/{$igUserId}/media", $payload);
-            $this->assertSuccess($response, 'create carousel item');
-            $itemIds[] = $response->json('id');
+        if ($this->isVideo($url)) {
+            $payload['media_type'] = 'VIDEO';
+            $payload['video_url']  = $url;
+        } else {
+            $payload['image_url'] = $url;
         }
 
-        // Step 2: Create the carousel container
-        $carouselResponse = Http::post(self::BASE_URL."/{$igUserId}/media", [
-            'media_type' => 'CAROUSEL',
-            'children' => implode(',', $itemIds),
-            'caption' => $post->content,
-            'access_token' => $token,
-        ]);
-        $this->assertSuccess($carouselResponse, 'create carousel container');
-        $carouselId = $carouselResponse->json('id');
+        $response = Http::post(self::BASE_URL . "/{$igUserId}/media", $payload);
+        $this->assertSuccess($response, 'create carousel item');
+        $itemId = $response->json('id');
 
-        // Step 3: Publish
-        return $this->publishContainer($igUserId, $carouselId, $token);
+        // Wait for each item to be ready
+        $this->waitForContainerReady($itemId, $token);
+
+        $itemIds[] = $itemId;
     }
+
+    $carouselResponse = Http::post(self::BASE_URL . "/{$igUserId}/media", [
+        'media_type'   => 'CAROUSEL',
+        'children'     => implode(',', $itemIds),
+        'caption'      => $post->content,
+        'access_token' => $token,
+    ]);
+    $this->assertSuccess($carouselResponse, 'create carousel container');
+    $carouselId = $carouselResponse->json('id');
+
+    // Wait for carousel to be ready
+    $this->waitForContainerReady($carouselId, $token);
+
+    return $this->publishContainer($igUserId, $carouselId, $token);
+}
 
     private function publishContainer(string $igUserId, string $creationId, string $token): string
     {
