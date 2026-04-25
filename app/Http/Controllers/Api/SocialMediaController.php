@@ -547,9 +547,10 @@ class SocialMediaController extends Controller
 
         $path = $request->file('file')->store('social-media', 'public');
 
-        // Build the media URL from the request host so it always resolves to the public domain,
-        // not APP_URL (which may be set to localhost in some server configs).
-        $mediaUrl = $request->getSchemeAndHttpHost() . '/media/' . $path;
+        // Use the /storage/ static path served directly by nginx — no PHP middleware,
+        // no session, no redirects. Instagram and other external crawlers can always reach it.
+        // Requires: php artisan storage:link (run once on the server).
+        $mediaUrl = $request->getSchemeAndHttpHost() . '/storage/' . $path;
 
         return response()->json([
             'url'       => $mediaUrl,
