@@ -12,6 +12,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class PublishSocialPostJob implements ShouldQueue
 {
@@ -146,9 +147,61 @@ class PublishSocialPostJob implements ShouldQueue
         $hasAnyPublished = $targets->contains(fn ($t) => $t->status === 'published');
 
         $post->update([
-            'status' => $hasAnyPublished ? 'published' : 'failed',
-            'published_at' => $hasAnyPublished ? ($post->published_at ?? now()) : null,
+            'status'         => $hasAnyPublished ? 'published' : 'failed',
+            'published_at'   => $hasAnyPublished ? ($post->published_at ?? now()) : null,
             'failure_reason' => $hasAnyPublished ? null : 'All publish attempts failed. Check account credentials and try again.',
         ]);
+
+        // Delete local media files once the post is live — the platform copies are the source of truth
+        if ($hasAnyPublished) {
+            $this->deleteLocalMediaFiles($post);
+        }
+    }
+
+    private function deleteLocalMediaFiles(SocialPost $post): void
+    {
+        $media = $post->media ?? [];
+
+        if (empty($media)) {
+            return;
+        }
+
+        $appUrl  = rtrim(config('app.url'), '/');
+        $deleted = [];
+
+        foreach ($media as $url) {
+            // Extract the storage path from our own media URLs: /media/{path}
+            $parsed = parse_url((string) $url);
+            $urlBase = ($parsed['scheme'] ?? '') . '://' . ($parsed['host'] ?? '');
+
+            if ($urlBase && ! str_starts_with($appUrl, $urlBase) && ! str_starts_with($url, $appUrl)) {
+                // External URL (already on the platform or a CDN) — skip
+                continue;
+            }
+
+            $urlPath = $parsed['path'] ?? '';
+
+            // Our media route is /media/{storagePath}
+            if (! str_starts_with($urlPath, '/media/')) {
+                continue;
+            }
+
+            $storagePath = ltrim(substr($urlPath, strlen('/media/')), '/');
+
+            if (filled($storagePath) && Storage::disk('public')->exists($storagePath)) {
+                Storage::disk('public')->delete($storagePath);
+                $deleted[] = $storagePath;
+            }
+        }
+
+        if (! empty($deleted)) {
+            // Clear the media array — URLs are now dead, platform is the source of truth
+            $post->update(['media' => []]);
+
+            Log::info('Local media files deleted after publish', [
+                'post_id' => $post->id,
+                'files'   => $deleted,
+            ]);
+        }
     }
 }

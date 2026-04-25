@@ -192,6 +192,82 @@ class InstagramConnector implements SocialPlatformPublisher
         throw new RuntimeException('Instagram video processing timed out after '.((self::VIDEO_POLL_ATTEMPTS * self::VIDEO_POLL_DELAY_SECONDS)).' seconds.');
     }
 
+    /**
+     * Verify the stored access_token is still valid and return expiry info.
+     * Returns ['is_valid' => bool, 'expires_at' => Carbon|null, 'message' => string|null]
+     */
+    public function validateToken(): array
+    {
+        $token     = trim((string) ($this->credentials['access_token'] ?? ''));
+        $appId     = trim((string) ($this->credentials['app_id'] ?? ''));
+        $appSecret = trim((string) ($this->credentials['app_secret'] ?? ''));
+
+        if (! filled($token)) {
+            return ['is_valid' => false, 'expires_at' => null, 'message' => 'Instagram access_token is missing.'];
+        }
+
+        if (! filled($appId) || ! filled($appSecret)) {
+            return ['is_valid' => false, 'expires_at' => null, 'message' => 'app_id and app_secret are required to validate the token.'];
+        }
+
+        $response = Http::get(self::BASE_URL . '/debug_token', [
+            'input_token'  => $token,
+            'access_token' => "{$appId}|{$appSecret}",
+        ]);
+
+        if (! $response->successful()) {
+            return ['is_valid' => false, 'expires_at' => null, 'message' => $response->json('error.message') ?? 'Token validation request failed.'];
+        }
+
+        $data      = $response->json('data') ?? [];
+        $isValid   = (bool) ($data['is_valid'] ?? false);
+        $expiresAt = filled($data['expires_at'] ?? null)
+            ? \Carbon\Carbon::createFromTimestamp((int) $data['expires_at'])
+            : null;
+
+        return [
+            'is_valid'   => $isValid,
+            'expires_at' => $expiresAt,
+            'scopes'     => $data['scopes'] ?? [],
+            'message'    => $isValid ? null : ($data['error']['message'] ?? 'Token is no longer valid.'),
+        ];
+    }
+
+    /**
+     * Fetch recent posts from the Instagram Business Account.
+     * Returns an array of post data for upsert into social_posts.
+     */
+    public function syncPlatformPosts(int $limit = 25): array
+    {
+        $igUserId = trim((string) ($this->credentials['business_account_id'] ?? ''));
+        $token    = trim((string) ($this->credentials['access_token'] ?? ''));
+
+        if (! filled($igUserId) || ! filled($token)) {
+            throw new RuntimeException('business_account_id and access_token are required to sync Instagram posts.');
+        }
+
+        $response = Http::get(self::BASE_URL . "/{$igUserId}/media", [
+            'fields'       => 'id,caption,media_type,media_url,thumbnail_url,timestamp,permalink',
+            'limit'        => $limit,
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Instagram media sync failed: ' . ($response->json('error.message') ?? $response->body()));
+        }
+
+        return collect($response->json('data') ?? [])->map(fn ($item) => [
+            'external_post_id' => (string) $item['id'],
+            'content'          => $item['caption'] ?? '',
+            'media'            => array_filter([
+                $item['media_url'] ?? $item['thumbnail_url'] ?? null,
+            ]),
+            'platform_url'     => $item['permalink'] ?? null,
+            'media_type'       => strtolower($item['media_type'] ?? 'image'),
+            'published_at'     => $item['timestamp'] ?? null,
+        ])->all();
+    }
+
     private function isVideo(string $url): bool
     {
         $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));

@@ -402,6 +402,50 @@ class FacebookConnector implements SocialPlatformPublisher
         }
     }
 
+    /**
+     * Fetch recent posts from the Facebook Page.
+     * Returns an array of post data for upsert into social_posts.
+     */
+    public function syncPlatformPosts(int $limit = 25): array
+    {
+        $pageId = trim((string) ($this->credentials['page_id'] ?? ''));
+        $token  = $this->resolvePageToken($pageId);
+
+        $response = Http::get(self::BASE_URL . "/{$pageId}/posts", [
+            'fields'       => 'id,message,full_picture,created_time,permalink_url,attachments{media}',
+            'limit'        => $limit,
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Facebook posts sync failed: ' . ($response->json('error.message') ?? $response->body()));
+        }
+
+        return collect($response->json('data') ?? [])->map(function ($item) {
+            $media = [];
+
+            if (filled($item['full_picture'] ?? null)) {
+                $media[] = $item['full_picture'];
+            }
+
+            // Multi-photo posts: extract subattachment images
+            foreach (($item['attachments']['data'][0]['subattachments']['data'] ?? []) as $sub) {
+                $url = $sub['media']['image']['src'] ?? null;
+                if (filled($url) && ! in_array($url, $media, true)) {
+                    $media[] = $url;
+                }
+            }
+
+            return [
+                'external_post_id' => (string) $item['id'],
+                'content'          => $item['message'] ?? '',
+                'media'            => $media,
+                'platform_url'     => $item['permalink_url'] ?? null,
+                'published_at'     => $item['created_time'] ?? null,
+            ];
+        })->all();
+    }
+
     public function publishCommentReply(string $platformCommentId, string $message): string
     {
         $pageId = trim((string) ($this->credentials['page_id'] ?? ''));

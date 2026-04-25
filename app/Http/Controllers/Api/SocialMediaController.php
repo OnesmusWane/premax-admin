@@ -11,6 +11,7 @@ use App\Models\SocialConversation;
 use App\Models\SocialMessage;
 use App\Models\SocialPost;
 use App\Services\Social\FacebookConnector;
+use App\Services\Social\InstagramConnector;
 use App\Support\SocialConnectorRegistry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -124,8 +125,8 @@ class SocialMediaController extends Controller
         $account = SocialAccount::create([
             ...$data,
             'connection_type' => $data['connection_type'] ?? SocialConnectorRegistry::for($data['platform'])['connection_type'],
-            'auth_status' => $data['auth_status'] ?? 'connected',
-            'status' => $data['status'] ?? 'active',
+            'auth_status' => 'pending',
+            'status' => 'attention',
             'capabilities' => $data['capabilities'] ?? $this->defaultCapabilities($data['platform']),
             'followers_count' => $data['followers_count'] ?? 0,
             'inbox_count' => $data['inbox_count'] ?? 0,
@@ -133,13 +134,16 @@ class SocialMediaController extends Controller
             'auto_sync_enabled' => $data['auto_sync_enabled'] ?? true,
             'sync_frequency_minutes' => $data['sync_frequency_minutes'] ?? 15,
             'sync_status' => 'synced',
-            'is_active' => $data['is_active'] ?? true,
+            'is_active' => false,
             'webhook_verify_token' => Str::random(40),
             'connected_by' => $request->user()?->id,
             'last_synced_at' => now(),
             'last_sync_started_at' => now(),
             'last_sync_completed_at' => now(),
         ]);
+
+        // Immediately validate any token that was supplied so the status reflects reality
+        $this->validateAndUpdateAccountToken($account->fresh());
 
         return response()->json($this->serializeAccount($account->fresh()), 201);
     }
@@ -200,6 +204,11 @@ class SocialMediaController extends Controller
         }
 
         $socialAccount->update($data);
+
+        // Re-validate token whenever credentials are updated
+        if (array_key_exists('credentials', $data)) {
+            $this->validateAndUpdateAccountToken($socialAccount->fresh());
+        }
 
         return response()->json($this->serializeAccount($socialAccount->fresh()));
     }
@@ -538,10 +547,14 @@ class SocialMediaController extends Controller
 
         $path = $request->file('file')->store('social-media', 'public');
 
+        // Build the media URL from the request host so it always resolves to the public domain,
+        // not APP_URL (which may be set to localhost in some server configs).
+        $mediaUrl = $request->getSchemeAndHttpHost() . '/media/' . $path;
+
         return response()->json([
-            'url' => route('media.public', ['path' => $path]),
-            'path' => $path,
-            'name' => $request->file('file')->getClientOriginalName(),
+            'url'       => $mediaUrl,
+            'path'      => $path,
+            'name'      => $request->file('file')->getClientOriginalName(),
             'mime_type' => $request->file('file')->getMimeType(),
         ], 201);
     }
@@ -1060,13 +1073,17 @@ class SocialMediaController extends Controller
 
     private function isConnectionReady(SocialAccount $account): bool
     {
-        if (in_array($account->auth_status, ['expired', 'error', 'disconnected'], true)) {
+        if (in_array($account->auth_status, ['expired', 'error', 'disconnected', 'pending'], true)) {
+            return false;
+        }
+
+        // Token is known to be expired
+        if ($account->token_expires_at && $account->token_expires_at->isPast()) {
             return false;
         }
 
         $creds = $account->credentials ?? [];
 
-        // All platform-defined required keys must be present
         $requiredSatisfied = collect(SocialConnectorRegistry::requiredCredentialKeys($account->platform))
             ->every(fn (string $key) => filled(data_get($creds, $key)));
 
@@ -1074,13 +1091,155 @@ class SocialMediaController extends Controller
             return false;
         }
 
-        // Facebook v25.0: needs either a direct page token or a user token for auto-exchange
         if ($account->platform === 'facebook') {
             return filled($creds['page_access_token'] ?? null)
                 || filled($creds['user_access_token'] ?? null);
         }
 
         return true;
+    }
+
+    /**
+     * Call the platform token introspection API and update the account status to reflect reality.
+     * Skips silently if credentials are insufficient to validate.
+     */
+    private function validateAndUpdateAccountToken(SocialAccount $account): void
+    {
+        try {
+            if ($account->platform === 'facebook') {
+                $creds = $account->credentials ?? [];
+                if (! filled($creds['app_id'] ?? '') || ! filled($creds['app_secret'] ?? '')) {
+                    return;
+                }
+                if (! filled($creds['user_access_token'] ?? '') && ! filled($creds['page_access_token'] ?? '')) {
+                    return;
+                }
+
+                $connector  = new FacebookConnector($creds);
+                $inspection = $connector->inspectToken();
+
+                $account->update([
+                    'auth_status'           => ($inspection['is_valid'] ?? false) ? 'connected' : 'expired',
+                    'status'                => ($inspection['is_valid'] ?? false) ? 'active' : 'attention',
+                    'is_active'             => (bool) ($inspection['is_valid'] ?? false),
+                    'token_expires_at'      => $inspection['expires_at'] ?? null,
+                    'last_token_checked_at' => now(),
+                    'sync_error'            => ($inspection['is_valid'] ?? false) ? null : ($inspection['message'] ?? null),
+                ]);
+
+            } elseif ($account->platform === 'instagram') {
+                $creds = $account->credentials ?? [];
+                if (! filled($creds['access_token'] ?? '') || ! filled($creds['app_id'] ?? '') || ! filled($creds['app_secret'] ?? '')) {
+                    return;
+                }
+
+                $connector  = new InstagramConnector($creds);
+                $inspection = $connector->validateToken();
+
+                $account->update([
+                    'auth_status'           => ($inspection['is_valid'] ?? false) ? 'connected' : 'expired',
+                    'status'                => ($inspection['is_valid'] ?? false) ? 'active' : 'attention',
+                    'is_active'             => (bool) ($inspection['is_valid'] ?? false),
+                    'token_expires_at'      => $inspection['expires_at'] ?? null,
+                    'last_token_checked_at' => now(),
+                    'sync_error'            => ($inspection['is_valid'] ?? false) ? null : ($inspection['message'] ?? null),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Account token validation failed', [
+                'account_id' => $account->id,
+                'platform'   => $account->platform,
+                'error'      => $e->getMessage(),
+            ]);
+        }
+    }
+
+    public function syncAccountPosts(SocialAccount $socialAccount)
+    {
+        if (! in_array($socialAccount->platform, ['facebook', 'instagram'], true)) {
+            throw ValidationException::withMessages([
+                'platform' => ['Post sync is only supported for Facebook and Instagram.'],
+            ]);
+        }
+
+        try {
+            $connector   = SocialConnectorRegistry::make($socialAccount);
+            $platformPosts = match ($socialAccount->platform) {
+                'facebook'  => $connector->syncPlatformPosts(25),
+                'instagram' => $connector->syncPlatformPosts(25),
+            };
+
+            $synced  = 0;
+            $created = 0;
+
+            foreach ($platformPosts as $item) {
+                $externalId = $item['external_post_id'] ?? null;
+                if (! filled($externalId)) {
+                    continue;
+                }
+
+                // Find an existing target for this account + external post ID
+                $existingTarget = $socialAccount->postTargets()
+                    ->where('external_post_id', $externalId)
+                    ->with('post')
+                    ->first();
+
+                if ($existingTarget) {
+                    // Update the post content if it changed on the platform
+                    $existingTarget->post?->update([
+                        'content'   => $item['content'],
+                        'media'     => $item['media'] ?? [],
+                        'link_url'  => $item['platform_url'] ?? $existingTarget->post->link_url,
+                    ]);
+                    $synced++;
+                } else {
+                    // Create a new post record for a post that originated on the platform
+                    $post = DB::transaction(function () use ($socialAccount, $item) {
+                        $publishedAt = filled($item['published_at'] ?? null)
+                            ? \Carbon\Carbon::parse($item['published_at'])
+                            : now();
+
+                        $post = SocialPost::create([
+                            'title'        => null,
+                            'content'      => $item['content'],
+                            'media'        => $item['media'] ?? [],
+                            'link_url'     => $item['platform_url'] ?? null,
+                            'status'       => 'published',
+                            'published_at' => $publishedAt,
+                            'created_by'   => null,
+                        ]);
+
+                        $post->targets()->create([
+                            'social_account_id' => $socialAccount->id,
+                            'external_post_id'  => $item['external_post_id'],
+                            'status'            => 'published',
+                            'published_at'      => $publishedAt,
+                        ]);
+
+                        return $post;
+                    });
+
+                    $created++;
+                }
+            }
+
+            Log::info('Platform posts synced', [
+                'account_id' => $socialAccount->id,
+                'platform'   => $socialAccount->platform,
+                'synced'     => $synced,
+                'created'    => $created,
+            ]);
+
+            return response()->json([
+                'synced'  => $synced,
+                'created' => $created,
+                'total'   => $synced + $created,
+            ]);
+        } catch (\Throwable $e) {
+            throw ValidationException::withMessages([
+                'sync' => [$e->getMessage()],
+            ]);
+        }
     }
 
     private function serializePost(SocialPost $post): array

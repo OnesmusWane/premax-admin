@@ -483,6 +483,21 @@
                   </button>
                 </div>
 
+                <!-- Sync Posts from platform — FB and IG only, connected only -->
+                <div
+                  v-if="account.auth_status === 'connected' && ['facebook', 'instagram'].includes(account.platform)"
+                  class="border-t border-slate-100 px-3 py-2"
+                >
+                  <button
+                    @click="syncAccountPosts(account)"
+                    :disabled="syncingPostsId === account.id"
+                    class="w-full rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-50"
+                    title="Import all posts from this account into the portal"
+                  >
+                    {{ syncingPostsId === account.id ? 'Importing Posts…' : '↓ Import Posts from Platform' }}
+                  </button>
+                </div>
+
                 <div v-if="account.platform === 'facebook'" class="border-t border-slate-100 p-3 space-y-2">
                   <!-- Primary: Authorize with Facebook — runs full OAuth, auto-populates all tokens -->
                   <button
@@ -1161,6 +1176,7 @@ const uploadingMedia = ref(false)
 const refreshingTokenId = ref(null)
 const connectingOAuthId = ref(null)
 const regeneratingPageTokenId = ref(null)
+const syncingPostsId = ref(null)
 const dragOver = ref(false)
 const fileInputRef = ref(null)
 
@@ -1888,6 +1904,22 @@ async function refreshToken(account) {
     toast.error(msg)
   } finally {
     refreshingTokenId.value = null
+  }
+}
+
+async function syncAccountPosts(account) {
+  syncingPostsId.value = account.id
+  try {
+    const result = await post(`/admin/social-media/accounts/${account.id}/sync-posts`)
+    toast.success(`Synced ${result.total} posts from ${account.name} (${result.created} new, ${result.synced} updated).`)
+    await loadData()
+  } catch (error) {
+    const msg = error.response?.data?.errors?.sync?.[0]
+      || error.response?.data?.message
+      || 'Post sync failed. Check account credentials.'
+    toast.error(msg)
+  } finally {
+    syncingPostsId.value = null
   }
 }
 
