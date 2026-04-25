@@ -539,25 +539,53 @@ class SocialMediaController extends Controller
         ]);
     }
 
-    public function uploadMedia(Request $request)
-    {
-        $request->validate([
-            'file' => 'required|file|mimes:jpg,jpeg,png,mp4,mov|max:51200',
+   public function uploadMedia(Request $request)
+{
+    $request->validate([
+        'file' => 'required|file|mimes:jpg,jpeg,png,mp4,mov|max:51200',
+    ]);
+
+    $file = $request->file('file');
+
+    try {
+        $cloudinary = new \Cloudinary\Cloudinary([
+            'cloud' => [
+                'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
+                'api_key'    => env('CLOUDINARY_API_KEY'),
+                'api_secret' => env('CLOUDINARY_API_SECRET'),
+            ],
+            'url' => [
+                'secure' => true,
+            ],
         ]);
 
-        $file   = $request->file('file');
-        $result = cloudinary()->upload($file->getRealPath(), [
-            'folder'        => 'social-media',
-            'resource_type' => 'auto',
-        ]);
+        $result = $cloudinary->uploadApi()->upload(
+            $file->getRealPath(),
+            [
+                'folder'        => 'social-media',
+                'resource_type' => 'auto',
+            ]
+        );
+
+        $url = $result['secure_url'];
+
+        Log::info('Media uploaded to Cloudinary', ['url' => $url]);
 
         return response()->json([
-            'url'       => $result->getSecurePath(), // Always public ✅
-            'path'      => $result->getPublicId(),
+            'url'       => $url,
+            'path'      => $result['public_id'],
             'name'      => $file->getClientOriginalName(),
             'mime_type' => $file->getMimeType(),
         ], 201);
+
+    } catch (\Throwable $e) {
+        Log::error('Cloudinary upload failed', ['error' => $e->getMessage()]);
+
+        return response()->json([
+            'message' => 'Media upload failed: ' . $e->getMessage(),
+        ], 500);
     }
+}
 
     public function storePost(Request $request)
     {
