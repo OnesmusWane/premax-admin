@@ -320,7 +320,7 @@ class SocialMediaController extends Controller
         }
 
         $state       = encrypt($socialAccount->id . '|' . now()->timestamp);
-        $redirectUri = url("/api/social-media/oauth/facebook/{$socialAccount->id}");
+        $redirectUri = url("/api/social-media/oauth/facebook/{$socialAccount->id}/callback");
         $connector   = new FacebookConnector($creds);
 
         return response()->json([
@@ -345,7 +345,7 @@ class SocialMediaController extends Controller
         }
 
         $code        = $request->string('code')->toString();
-        $redirectUri = url("/api/social-media/oauth/{$platform}/{$socialAccount->id}");
+        $redirectUri = url("/api/social-media/oauth/{$platform}/{$socialAccount->id}/callback");
 
         if (! filled($code)) {
             return redirect($frontendBase . '/social-media?oauth=error&reason=no_code');
@@ -975,7 +975,7 @@ class SocialMediaController extends Controller
     private function serializeAccount(SocialAccount $account): array
     {
         $callbackUrls = [
-            'oauth_callback_url' => url("/api/social-media/oauth/{$account->platform}/{$account->id}"),
+            'oauth_callback_url' => url("/api/social-media/oauth/{$account->platform}/{$account->id}/callback"),
             'webhook_callback_url' => url("/api/social-media/webhooks/{$account->platform}/{$account->id}"),
         ];
 
