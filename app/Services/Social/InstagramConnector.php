@@ -26,39 +26,7 @@ class InstagramConnector implements SocialPlatformPublisher
 
     public function __construct(private readonly array $credentials) {}
 
-    private function publishSingle(SocialPost $post, string $igUserId, string $token, string $mediaUrl): string
-    {
-        $containerPayload = [
-            'caption'      => $post->content,
-            'access_token' => $token,
-        ];
-
-        if ($this->isVideo($mediaUrl)) {
-            $containerPayload['media_type'] = 'VIDEO';
-            $containerPayload['video_url']  = $mediaUrl;
-        } else {
-            $containerPayload['image_url'] = $mediaUrl;
-        }
-
-        Log::info('Instagram create container payload', [
-            'ig_user_id' => $igUserId,
-            'media_url'  => $mediaUrl,
-            'is_video'   => $this->isVideo($mediaUrl),
-        ]);
-
-        // Step 1: Create media container
-        $response = Http::post(self::BASE_URL . "/{$igUserId}/media", $containerPayload);
-        $this->assertSuccess($response, 'create container');
-        $creationId = $response->json('id');
-
-        Log::info('Instagram container created', ['creation_id' => $creationId]);
-
-        // Step 2: Wait for container to be ready ← ADD THIS
-        $this->waitForContainerReady($creationId, $token);
-
-        // Step 3: Publish the container
-        return $this->publishContainer($igUserId, $creationId, $token);
-    }
+   
     private function waitForContainerReady(string $creationId, string $token): void
 {
     $maxAttempts = 10;

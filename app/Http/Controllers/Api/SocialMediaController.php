@@ -539,47 +539,72 @@ class SocialMediaController extends Controller
         ]);
     }
 
-   public function uploadMedia(Request $request)
+  public function uploadMedia(Request $request)
 {
     $request->validate([
         'file' => 'required|file|mimes:jpg,jpeg,png,mp4,mov|max:51200',
     ]);
 
-    $file = $request->file('file');
+    $file      = $request->file('file');
+    $cloudName = config('cloudinary.cloud_name');
+    $apiKey    = config('cloudinary.api_key');
+    $apiSecret = config('cloudinary.api_secret');
+
+    // Log to verify credentials are loading
+    Log::info('Cloudinary config', [
+        'cloud_name' => $cloudName,
+        'api_key'    => $apiKey ? 'set' : 'missing',
+        'api_secret' => $apiSecret ? 'set' : 'missing',
+    ]);
+
+    if (! filled($cloudName) || ! filled($apiKey) || ! filled($apiSecret)) {
+        return response()->json([
+            'message' => 'Cloudinary credentials are not configured.',
+        ], 500);
+    }
+
+    $timestamp = time();
+
+    // Generate Cloudinary signature
+    $paramsToSign = "folder=social-media&timestamp={$timestamp}";
+    $signature    = sha1($paramsToSign . $apiSecret);
 
     try {
-        $cloudinary = new \Cloudinary\Cloudinary([
-            'cloud' => [
-                'cloud_name' => env('CLOUDINARY_CLOUD_NAME'),
-                'api_key'    => env('CLOUDINARY_API_KEY'),
-                'api_secret' => env('CLOUDINARY_API_SECRET'),
-            ],
-            'url' => [
-                'secure' => true,
-            ],
+        $response = \Http::attach(
+            'file',
+            file_get_contents($file->getRealPath()),
+            $file->getClientOriginalName()
+        )->post("https://api.cloudinary.com/v1_1/{$cloudName}/auto/upload", [
+            'api_key'   => $apiKey,
+            'timestamp' => $timestamp,
+            'signature' => $signature,
+            'folder'    => 'social-media',
         ]);
 
-        $result = $cloudinary->uploadApi()->upload(
-            $file->getRealPath(),
-            [
-                'folder'        => 'social-media',
-                'resource_type' => 'auto',
-            ]
-        );
+        if (! $response->successful()) {
+            Log::error('Cloudinary upload failed', [
+                'status'   => $response->status(),
+                'response' => $response->json(),
+            ]);
 
-        $url = $result['secure_url'];
+            throw new \RuntimeException(
+                'Cloudinary upload failed: ' . ($response->json('error.message') ?? $response->body())
+            );
+        }
 
-        Log::info('Media uploaded to Cloudinary', ['url' => $url]);
+        $url = $response->json('secure_url');
+
+        Log::info('Cloudinary upload success', ['url' => $url]);
 
         return response()->json([
             'url'       => $url,
-            'path'      => $result['public_id'],
+            'path'      => $response->json('public_id'),
             'name'      => $file->getClientOriginalName(),
             'mime_type' => $file->getMimeType(),
         ], 201);
 
     } catch (\Throwable $e) {
-        Log::error('Cloudinary upload failed', ['error' => $e->getMessage()]);
+        Log::error('Cloudinary upload exception', ['error' => $e->getMessage()]);
 
         return response()->json([
             'message' => 'Media upload failed: ' . $e->getMessage(),
