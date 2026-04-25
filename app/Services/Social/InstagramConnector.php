@@ -17,6 +17,9 @@ class InstagramConnector implements SocialPlatformPublisher
     // Extensions we treat as video
     private const VIDEO_EXTENSIONS = ['mp4', 'mov', 'avi', 'wmv', 'webm', 'mkv'];
 
+    // Instagram only supports these image formats
+    private const SUPPORTED_IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png'];
+
     // Max seconds to wait for IG video processing before giving up
     private const VIDEO_POLL_ATTEMPTS = 12;
     private const VIDEO_POLL_DELAY_SECONDS = 5;
@@ -42,6 +45,10 @@ class InstagramConnector implements SocialPlatformPublisher
                 'Instagram requires at least one image or video URL in the media field. '.
                 'Add a media URL to the post and try again.'
             );
+        }
+
+        foreach ($media as $mediaUrl) {
+            $this->assertSupportedFormat($mediaUrl);
         }
 
         if (count($media) === 1) {
@@ -91,6 +98,12 @@ class InstagramConnector implements SocialPlatformPublisher
         } else {
             $containerPayload['image_url'] = $mediaUrl;
         }
+
+        Log::info('Instagram create container payload', [
+            'ig_user_id' => $igUserId,
+            'media_url' => $mediaUrl,
+            'is_video' => $this->isVideo($mediaUrl),
+        ]);
 
         // Step 1: Create media container
         $response = Http::post(self::BASE_URL."/{$igUserId}/media", $containerPayload);
@@ -184,6 +197,22 @@ class InstagramConnector implements SocialPlatformPublisher
         $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
 
         return in_array($ext, self::VIDEO_EXTENSIONS, true);
+    }
+
+    private function assertSupportedFormat(string $url): void
+    {
+        $ext = strtolower(pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
+
+        if ($this->isVideo($url)) {
+            return;
+        }
+
+        if (! in_array($ext, self::SUPPORTED_IMAGE_EXTENSIONS, true)) {
+            throw new RuntimeException(
+                "Instagram does not support the '{$ext}' image format. ".
+                'Use JPG or PNG instead.'
+            );
+        }
     }
 
     private function assertSuccess(Response $response, string $step): void
