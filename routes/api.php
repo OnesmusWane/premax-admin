@@ -35,7 +35,10 @@ Route::post('/admin/2fa/recovery/verify', [AuthController::class, 'verifyTwoFact
 Route::post('/admin/password/email', [AuthController::class, 'sendPasswordResetLink']);
 Route::post('/admin/password/reset', [AuthController::class, 'resetPassword']);
 Route::get('/gallery', [GalleryController::class, 'publicIndex']);
-Route::get('/social-media/oauth/{platform}/{socialAccount}', [SocialMediaController::class, 'oauthCallback']);
+// Facebook OAuth callback — no auth required.
+// Register this exact URL in Meta Developer Portal → Facebook Login → Valid OAuth Redirect URIs:
+//   https://admin.premaxautoservice.co.ke/api/social-media/oauth/facebook/callback
+Route::get('/social-media/oauth/facebook/callback', [SocialMediaController::class, 'oauthCallback']);
 Route::match(['get', 'post'], '/social-media/webhooks/{platform}/{socialAccount}', [SocialMediaController::class, 'webhookCallback']);
 
 // ── Protected (Sanctum) ───────────────────────────────────────────────────────

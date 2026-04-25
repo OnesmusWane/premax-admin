@@ -319,36 +319,62 @@ class SocialMediaController extends Controller
             ]);
         }
 
-        $state       = encrypt($socialAccount->id . '|' . now()->timestamp);
-        $redirectUri = url("/api/social-media/oauth/facebook/{$socialAccount->id}/callback");
-        $connector   = new FacebookConnector($creds);
+        // Fixed callback URL — register exactly this ONE URL in Meta Developer Portal
+        $redirectUri = url('/api/social-media/oauth/facebook/callback');
+
+        // Account ID travels in the encrypted state so the callback knows which account to update
+        $state     = encrypt($socialAccount->id . '|' . now()->timestamp);
+        $connector = new FacebookConnector($creds);
 
         return response()->json([
-            'oauth_url' => $connector->getOAuthUrl($redirectUri, $state),
+            'oauth_url'    => $connector->getOAuthUrl($redirectUri, $state),
+            'redirect_uri' => $redirectUri,
         ]);
     }
 
-    public function oauthCallback(Request $request, string $platform, SocialAccount $socialAccount)
+    /**
+     * Fixed-URL Facebook OAuth callback — no auth middleware, no account ID in the path.
+     * Facebook redirects here after the user approves the dialog.
+     * Register ONLY this URL in Meta Developer Portal → Facebook Login → Valid OAuth Redirect URIs:
+     *   https://admin.premaxautoservice.co.ke/api/social-media/oauth/facebook/callback
+     */
+    public function oauthCallback(Request $request)
     {
-        abort_unless($socialAccount->platform === $platform, 404);
-
         $frontendBase = rtrim(config('app.url'), '/');
+        $redirectUri  = url('/api/social-media/oauth/facebook/callback');
 
-        // Facebook redirects here with ?error= if the user denied access
         if ($request->has('error')) {
-            $socialAccount->update([
-                'auth_status' => 'error',
-                'sync_error'  => $request->input('error_description', 'OAuth access denied by user.'),
+            Log::warning('Facebook OAuth denied by user', [
+                'error'       => $request->input('error'),
+                'description' => $request->input('error_description'),
             ]);
 
             return redirect($frontendBase . '/social-media?oauth=denied');
         }
 
-        $code        = $request->string('code')->toString();
-        $redirectUri = url("/api/social-media/oauth/{$platform}/{$socialAccount->id}/callback");
+        $code  = $request->string('code')->toString();
+        $state = $request->string('state')->toString();
 
-        if (! filled($code)) {
-            return redirect($frontendBase . '/social-media?oauth=error&reason=no_code');
+        if (! filled($code) || ! filled($state)) {
+            return redirect($frontendBase . '/social-media?oauth=error&reason=missing_params');
+        }
+
+        // Recover the account ID from the encrypted state we built in getOAuthRedirectUrl
+        try {
+            $decrypted = decrypt($state);
+            $accountId = (int) explode('|', $decrypted)[0];
+        } catch (\Throwable) {
+            Log::error('Facebook OAuth: state decryption failed');
+
+            return redirect($frontendBase . '/social-media?oauth=error&reason=invalid_state');
+        }
+
+        $socialAccount = SocialAccount::find($accountId);
+
+        if (! $socialAccount || $socialAccount->platform !== 'facebook') {
+            Log::error('Facebook OAuth: account not found', ['account_id' => $accountId]);
+
+            return redirect($frontendBase . '/social-media?oauth=error&reason=account_not_found');
         }
 
         try {
@@ -356,7 +382,7 @@ class SocialMediaController extends Controller
             $connector = new FacebookConnector($creds);
             $tokens    = $connector->exchangeCodeForTokens($code, $redirectUri);
 
-            $expiresAt = $tokens['expires_in'] > 0
+            $expiresAt = ($tokens['expires_in'] ?? 0) > 0
                 ? now()->addSeconds($tokens['expires_in'])
                 : null;
 
@@ -377,7 +403,6 @@ class SocialMediaController extends Controller
                 'last_sync_completed_at' => now(),
             ]);
 
-            // Sync the same page token to any linked Instagram account
             if (filled($tokens['page_access_token'])) {
                 $this->syncInstagramPageToken($socialAccount, $tokens['page_access_token']);
             }
