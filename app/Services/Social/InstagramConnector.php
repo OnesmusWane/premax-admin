@@ -28,6 +28,12 @@ class InstagramConnector implements SocialPlatformPublisher
 
     public function publish(SocialPost $post, SocialPostTarget $_target): string
     {
+
+        Log::info('Instagram publish called', [
+        'post_id'    => $post->id,
+        'media'      => $post->media,
+        'media_json' => json_encode($post->media),
+    ]);
         $igUserId = $this->credentials['business_account_id'] ?? null;
         $token = $this->credentials['access_token'] ?? null;
 
