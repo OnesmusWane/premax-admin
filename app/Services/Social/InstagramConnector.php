@@ -72,49 +72,49 @@ class InstagramConnector implements SocialPlatformPublisher
         return $this->publishCarousel($post, $igUserId, $token, $media);
     }
 
-    public function updatePublishedPost(SocialPost $post, SocialPostTarget $target): void
-    {
-        $token = trim((string) ($this->credentials['access_token'] ?? ''));
+   public function updatePublishedPost(SocialPost $post, SocialPostTarget $target): void
+{
+    $token = trim((string) ($this->credentials['access_token'] ?? ''));
 
-        if (! filled($token)) {
-            throw new RuntimeException(
-                'Instagram access_token is required to update posts.'
-            );
-        }
+    if (! filled($token)) {
+        throw new RuntimeException(
+            'Instagram access_token is required to update posts.'
+        );
+    }
 
-        $mediaId = trim((string) ($target->external_post_id ?? ''));
+    $mediaId = trim((string) ($target->external_post_id ?? ''));
 
-        if (! filled($mediaId)) {
-            throw new RuntimeException(
-                'No external_post_id found on this target — post may not have been published yet.'
-            );
-        }
+    if (! filled($mediaId)) {
+        throw new RuntimeException(
+            'No external_post_id found on this target — post may not have been published yet.'
+        );
+    }
 
-        // Instagram only supports updating the caption
-        $response = Http::post(self::BASE_URL . "/{$mediaId}", [
-            'caption'      => $post->content,
-            'access_token' => $token,
-        ]);
+    $response = Http::post(self::BASE_URL . "/{$mediaId}", [
+        'caption'          => $post->content,
+        'comment_enabled'  => true,   // ← Required by Instagram API
+        'access_token'     => $token,
+    ]);
 
-        if (! $response->successful()) {
-            $errorMsg = $response->json('error.message') ?? $response->body();
+    if (! $response->successful()) {
+        $errorMsg = $response->json('error.message') ?? $response->body();
 
-            Log::warning('Instagram update failed', [
-                'media_id'  => $mediaId,
-                'target_id' => $target->id,
-                'error'     => $errorMsg,
-            ]);
-
-            throw new RuntimeException(
-                "[HTTP {$response->status()}] Instagram update failed: {$errorMsg}"
-            );
-        }
-
-        Log::info('Instagram post updated successfully', [
+        Log::warning('Instagram update failed', [
             'media_id'  => $mediaId,
             'target_id' => $target->id,
+            'error'     => $errorMsg,
         ]);
+
+        throw new RuntimeException(
+            "[HTTP {$response->status()}] Instagram update failed: {$errorMsg}"
+        );
     }
+
+    Log::info('Instagram post updated successfully', [
+        'media_id'  => $mediaId,
+        'target_id' => $target->id,
+    ]);
+}
 
     public function deletePublishedPost(SocialPostTarget $target): void
         {
