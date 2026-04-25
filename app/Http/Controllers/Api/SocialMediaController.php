@@ -542,21 +542,20 @@ class SocialMediaController extends Controller
     public function uploadMedia(Request $request)
     {
         $request->validate([
-            'file' => 'required|file|mimes:jpg,jpeg,png,gif,webp,mp4,mov,avi,webm|max:51200',
+            'file' => 'required|file|mimes:jpg,jpeg,png,mp4,mov|max:51200',
         ]);
 
-        $path = $request->file('file')->store('social-media', 'public');
-
-        // Use the /storage/ static path served directly by nginx — no PHP middleware,
-        // no session, no redirects. Instagram and other external crawlers can always reach it.
-        // Requires: php artisan storage:link (run once on the server).
-        $mediaUrl = $request->getSchemeAndHttpHost() . '/storage/' . $path;
+        $file   = $request->file('file');
+        $result = cloudinary()->upload($file->getRealPath(), [
+            'folder'        => 'social-media',
+            'resource_type' => 'auto',
+        ]);
 
         return response()->json([
-            'url'       => $mediaUrl,
-            'path'      => $path,
-            'name'      => $request->file('file')->getClientOriginalName(),
-            'mime_type' => $request->file('file')->getMimeType(),
+            'url'       => $result->getSecurePath(), // Always public ✅
+            'path'      => $result->getPublicId(),
+            'name'      => $file->getClientOriginalName(),
+            'mime_type' => $file->getMimeType(),
         ], 201);
     }
 
