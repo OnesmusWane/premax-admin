@@ -25,12 +25,12 @@
           </button>
         </nav>
 
-        <div class="mt-auto hidden border-t border-slate-200 px-4 py-4 lg:block">
+        <!-- <div class="mt-auto hidden border-t border-slate-200 px-4 py-4 lg:block">
           <button class="flex w-full items-center justify-center rounded-2xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-500 transition hover:bg-slate-50">
             <ChevronLeftIcon class="mr-2 h-4 w-4" />
             Collapse
           </button>
-        </div>
+        </div> -->
       </aside>
 
       <div class="flex min-h-0 flex-1 flex-col">
@@ -181,6 +181,9 @@
 
                     <div class="px-4">
                       <p class="line-clamp-4 text-sm leading-6" :class="postCardBodyTextClass(group.platform)">{{ post.content }}</p>
+                      <div v-if="post.status === 'failed' && post.failure_reason" class="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {{ post.failure_reason }}
+                      </div>
                     </div>
 
                     <div v-if="post.media?.length" class="mt-4">
@@ -223,6 +226,14 @@
                     </div>
 
                     <div class="flex items-center justify-end gap-2 border-t px-4 py-3" :class="postCardActionBarClass(group.platform)">
+                      <button
+                        v-if="post.status === 'failed'"
+                        @click="retryPost(post)"
+                        :disabled="retryingPostId === post.id"
+                        class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        {{ retryingPostId === post.id ? 'Retrying…' : 'Retry' }}
+                      </button>
                       <button
                         @click="openPostEditor(post)"
                         class="rounded-lg border px-3 py-2 text-xs font-bold transition"
@@ -483,10 +494,10 @@
                   </button>
                 </div>
 
-                <!-- Sync Posts from platform — FB and IG only, connected only -->
+                <!-- Sync Posts + Messages — FB and IG only, connected only -->
                 <div
                   v-if="account.auth_status === 'connected' && ['facebook', 'instagram'].includes(account.platform)"
-                  class="border-t border-slate-100 px-3 py-2"
+                  class="border-t border-slate-100 px-3 py-2 space-y-2"
                 >
                   <button
                     @click="syncAccountPosts(account)"
@@ -495,6 +506,14 @@
                     title="Import all posts from this account into the portal"
                   >
                     {{ syncingPostsId === account.id ? 'Importing Posts…' : '↓ Import Posts from Platform' }}
+                  </button>
+                  <button
+                    @click="syncAccountMessages(account)"
+                    :disabled="syncingMessagesId === account.id"
+                    class="w-full rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700 transition hover:bg-teal-100 disabled:opacity-50"
+                    title="Pull latest DMs and conversations from this account"
+                  >
+                    {{ syncingMessagesId === account.id ? 'Syncing Messages…' : '↓ Sync Messages & DMs' }}
                   </button>
                 </div>
 
@@ -711,14 +730,13 @@
                   <input
                     ref="fileInputRef"
                     type="file"
-                    multiple
-                    accept="image/*,video/mp4,video/mov,video/avi,video/webm"
+                    accept="image/jpeg,image/png,video/mp4,video/quicktime,video/avi,video/webm"
                     class="absolute inset-0 cursor-pointer opacity-0"
                     @change="onFileSelect($event)"
                   />
                   <PhotoIcon class="mx-auto h-8 w-8 text-slate-300" />
-                  <div class="mt-3 text-sm font-bold text-slate-600">Drop files here or click to browse</div>
-                  <div class="mt-1 text-xs text-slate-400">Just like gallery uploads: images and videos with instant preview.</div>
+                  <div class="mt-3 text-sm font-bold text-slate-600">Drop a file here or click to browse</div>
+                  <div class="mt-1 text-xs text-slate-400">One image (JPG, PNG) or video per post. Instagram requires an image or video.</div>
                   <div v-if="uploadingMedia" class="mt-3 text-xs font-bold text-[var(--color-custom-primary)]">Uploading…</div>
                 </div>
 
@@ -934,8 +952,22 @@
 
           <div class="border-t border-slate-200 px-6 py-6">
             <div class="mb-4 text-sm font-bold text-slate-700">Credentials</div>
+
+            <!-- Instagram auto-sync banner: shown when a connected FB account exists -->
+            <div
+              v-if="accountForm.platform === 'instagram' && linkedFacebookAccount"
+              class="mb-4 flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"
+            >
+              <span class="mt-0.5 shrink-0 text-base">🔗</span>
+              <div>
+                <span class="font-bold">Auto-synced from Facebook ({{ linkedFacebookAccount.name }}).</span>
+                App credentials and access token are shared with your Facebook account and kept in sync automatically.
+                Only the <span class="font-bold">Instagram Business Account ID</span> is needed here.
+              </div>
+            </div>
+
             <div class="grid gap-4 md:grid-cols-2">
-              <div v-for="field in currentAccountBlueprint.credentials || []" :key="field.key">
+              <div v-for="field in visibleCredentialFields" :key="field.key">
                 <label class="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
                   {{ field.label }}
                 </label>
@@ -1141,8 +1173,8 @@ const menuItems = [
   { key: 'posts', label: 'Posts', icon: PhotoIcon },
   { key: 'inbox', label: 'Inbox', icon: ChatBubbleOvalLeftIcon },
   { key: 'accounts', label: 'Accounts', icon: UserGroupIcon },
-  { key: 'youtube-videos', label: 'YouTube Videos', icon: VideoCameraIcon },
-  { key: 'youtube-comments', label: 'YT Comments', icon: ChatBubbleOvalLeftIcon },
+  //{ key: 'youtube-videos', label: 'YouTube Videos', icon: VideoCameraIcon },
+  //{ key: 'youtube-comments', label: 'YT Comments', icon: ChatBubbleOvalLeftIcon },
 ]
 
 const postFilters = ['all', 'published', 'scheduled', 'draft']
@@ -1177,6 +1209,8 @@ const refreshingTokenId = ref(null)
 const connectingOAuthId = ref(null)
 const regeneratingPageTokenId = ref(null)
 const syncingPostsId = ref(null)
+const syncingMessagesId = ref(null)
+const retryingPostId = ref(null)
 const dragOver = ref(false)
 const fileInputRef = ref(null)
 
@@ -1417,6 +1451,20 @@ const currentAccountBlueprint = computed(() => (
 ))
 
 const editingPost = computed(() => posts.value.find((post) => post.id === editingPostId.value) || null)
+
+// The connected Facebook account, used to auto-fill shared Instagram credentials
+const linkedFacebookAccount = computed(() =>
+  accounts.value.find((a) => a.platform === 'facebook' && a.auth_status === 'connected') || null
+)
+
+// Fields that are auto-filled from Facebook — hide them in the IG form when FB is linked
+const igAutoFilledKeys = ['app_id', 'app_secret', 'access_token', 'page_id']
+
+const visibleCredentialFields = computed(() => {
+  const fields = currentAccountBlueprint.value?.credentials || []
+  if (accountForm.value.platform !== 'instagram' || !linkedFacebookAccount.value) return fields
+  return fields.filter((f) => !igAutoFilledKeys.includes(f.key))
+})
 
 const postHasExternalTargets = computed(() => (
   Boolean(editingPost.value?.targets?.some((target) => target.external_post_id))
@@ -1733,16 +1781,44 @@ function backgroundSyncInteractions() {
   })
 }
 
+function validatePostForm() {
+  if (!editingPostId.value) {
+    if (!postForm.value.title?.trim()) return 'Campaign title is required.'
+    if (!postForm.value.content?.trim()) return 'Caption is required.'
+    if (postForm.value.account_ids.length === 0) return 'Select at least one platform to post to.'
+
+    const hasInstagram = connectedAccounts.value
+      .filter((a) => postForm.value.account_ids.includes(a.id))
+      .some((a) => a.platform === 'instagram')
+
+    if (hasInstagram && mediaFiles.value.length === 0) {
+      return 'Instagram requires a photo or video — please attach a file.'
+    }
+
+    if (!postForm.value.publish_now && !postForm.value.scheduled_for) {
+      return 'Select a publish date or check "Publish immediately".'
+    }
+  } else {
+    if (!postForm.value.content?.trim()) return 'Caption cannot be empty.'
+  }
+  return null
+}
+
 async function savePost() {
-  savingPost.value = true
   postError.value = null
 
+  const validationError = validatePostForm()
+  if (validationError) {
+    postError.value = validationError
+    return
+  }
+
+  savingPost.value = true
+
   const payload = editingPostId.value
-    ? {
-        content: postForm.value.content,
-      }
+    ? { content: postForm.value.content }
     : {
-        title: postForm.value.title || null,
+        title: postForm.value.title.trim(),
         content: postForm.value.content,
         scheduled_for: postForm.value.publish_now ? null : (postForm.value.scheduled_for || null),
         account_ids: postForm.value.account_ids,
@@ -1756,20 +1832,42 @@ async function savePost() {
   try {
     if (editingPostId.value) {
       const updated = await patch(`/admin/social-media/posts/${editingPostId.value}`, payload)
-      posts.value = posts.value.map((post) => post.id === updated.id ? updated : post)
+      posts.value = posts.value.map((p) => p.id === updated.id ? updated : p)
       toast.success('Post text updated.')
     } else {
-      const saved = await post('/admin/social-media/posts', payload)
-      posts.value = [saved, ...posts.value]
-      toast.success(saved.status === 'published' ? 'Post published.' : 'Post saved.')
+      const { posts: saved } = await post('/admin/social-media/posts', payload)
+      posts.value = [...saved, ...posts.value]
+      const first = saved[0]
+      toast.success(first?.status === 'published'
+        ? `${saved.length} post(s) published.`
+        : `${saved.length} post(s) scheduled.`)
     }
 
     closeComposer()
     await loadData()
   } catch (error) {
-    postError.value = error.response?.data?.message || error.response?.data?.errors?.post?.[0] || 'Unable to save the post.'
+    const errors = error.response?.data?.errors
+    if (errors) {
+      const first = Object.values(errors).flat()[0]
+      postError.value = first || 'Unable to save the post.'
+    } else {
+      postError.value = error.response?.data?.message || 'Unable to save the post.'
+    }
   } finally {
     savingPost.value = false
+  }
+}
+
+async function retryPost(postItem) {
+  retryingPostId.value = postItem.id
+  try {
+    const updated = await post(`/admin/social-media/posts/${postItem.id}/publish`)
+    posts.value = posts.value.map((p) => p.id === updated.id ? updated : p)
+    toast.success('Post queued for publishing.')
+  } catch (error) {
+    toast.error(error.response?.data?.message || 'Retry failed. Check account credentials.')
+  } finally {
+    retryingPostId.value = null
   }
 }
 
@@ -1923,6 +2021,22 @@ async function syncAccountPosts(account) {
   }
 }
 
+async function syncAccountMessages(account) {
+  syncingMessagesId.value = account.id
+  try {
+    const result = await post(`/admin/social-media/accounts/${account.id}/sync-messages`)
+    toast.success(`${account.name}: ${result.synced_conversations} conversation(s), ${result.new_messages} new message(s) synced.`)
+    await loadData()
+  } catch (error) {
+    const msg = error.response?.data?.errors?.sync?.[0]
+      || error.response?.data?.message
+      || 'Message sync failed. Check account credentials and permissions.'
+    toast.error(msg)
+  } finally {
+    syncingMessagesId.value = null
+  }
+}
+
 async function connectWithFacebook(account) {
   connectingOAuthId.value = account.id
   try {
@@ -1984,30 +2098,40 @@ async function onFileSelect(event) {
 async function onFileDrop(event) {
   dragOver.value = false
   const files = Array.from(event.dataTransfer?.files || [])
+  if (files.length > 1) {
+    postError.value = 'Only one file per post. Drop a single image or video.'
+    return
+  }
   await uploadFiles(files)
 }
 
 async function uploadFiles(files) {
   if (!files.length) return
 
+  // Only one file per post — take the first, replace any existing
+  const file = files[0]
+
+  if (mediaFiles.value.length > 0) {
+    releaseMediaPreviewUrls()
+    mediaFiles.value = []
+  }
+
   uploadingMedia.value = true
 
   try {
-    for (const file of files) {
-      const formData = new FormData()
-      formData.append('file', file)
+    const formData = new FormData()
+    formData.append('file', file)
 
-      const { data } = await axios.post('/admin/social-media/media', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+    const { data } = await axios.post('/admin/social-media/media', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
 
-      mediaFiles.value.push({
-        url: data.url,
-        name: data.name || file.name,
-        isVideo: file.type.startsWith('video/'),
-        previewUrl: URL.createObjectURL(file),
-      })
-    }
+    mediaFiles.value = [{
+      url: data.url,
+      name: data.name || file.name,
+      isVideo: file.type.startsWith('video/'),
+      previewUrl: URL.createObjectURL(file),
+    }]
   } catch (error) {
     postError.value = error.response?.data?.message || 'File upload failed.'
   } finally {

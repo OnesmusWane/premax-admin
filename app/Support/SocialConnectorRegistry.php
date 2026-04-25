@@ -47,13 +47,13 @@ class SocialConnectorRegistry
                 'label' => 'Instagram',
                 'connection_type' => 'oauth',
                 'credentials' => [
-                    // App credentials (same FB app used for Instagram Graph API)
-                    ['key' => 'app_id',              'label' => 'App ID (Facebook)',           'secret' => false, 'required' => true,  'hint' => 'Same Facebook App ID — Instagram uses the Facebook Graph API'],
-                    ['key' => 'app_secret',          'label' => 'App Secret (Facebook)',       'secret' => true,  'required' => true,  'hint' => 'Same Facebook App Secret'],
-                    // Per-account credentials (required to post)
-                    ['key' => 'business_account_id', 'label' => 'Instagram Business Account ID', 'secret' => false, 'required' => true,  'hint' => 'Numeric IG User ID — find via Graph API: GET /me/accounts then check instagram_business_account.id'],
-                    ['key' => 'access_token',        'label' => 'Access Token',                'secret' => true,  'required' => true,  'hint' => 'Long-lived token with instagram_basic and instagram_content_publish permissions'],
-                    ['key' => 'page_id',             'label' => 'Linked Facebook Page ID',     'secret' => false, 'required' => false, 'hint' => 'Optional — the Facebook Page connected to this Instagram Business Account'],
+                    // The only field unique to Instagram — everything else is shared with Facebook
+                    ['key' => 'business_account_id', 'label' => 'Instagram Business Account ID', 'secret' => false, 'required' => true,  'hint' => 'Numeric IG User ID — find it in Meta Business Suite → Instagram → Settings, or via Graph API: GET /me/accounts → instagram_business_account.id'],
+                    // Shared with Facebook — auto-filled when a connected Facebook account exists
+                    ['key' => 'app_id',              'label' => 'App ID',                      'secret' => false, 'required' => false, 'hint' => 'Auto-filled from your connected Facebook account. Only enter manually if no Facebook account is connected.'],
+                    ['key' => 'app_secret',          'label' => 'App Secret',                  'secret' => true,  'required' => false, 'hint' => 'Auto-filled from your connected Facebook account. Only enter manually if no Facebook account is connected.'],
+                    ['key' => 'access_token',        'label' => 'Access Token',                'secret' => true,  'required' => false, 'hint' => 'Auto-filled from the Facebook page access token. Only enter manually if no Facebook account is connected.'],
+                    ['key' => 'page_id',             'label' => 'Linked Facebook Page ID',     'secret' => false, 'required' => false, 'hint' => 'Auto-filled when a Facebook account is connected. Enables token sync between FB and IG.'],
                 ],
             ],
         ];
@@ -148,12 +148,12 @@ class SocialConnectorRegistry
         // Proactively refresh Facebook tokens that are expired or expire within 48 hours,
         // so the connector always starts with a valid token rather than failing mid-request.
         if ($account->platform === 'facebook') {
-            $expiresAt = $account->token_expires_at;
+            $expiresAt    = $account->token_expires_at;
             $needsRefresh = $expiresAt === null
                 || $expiresAt->isPast()
                 || $expiresAt->diffInHours(now(), true) <= 48;
 
-            $creds = $account->credentials ?? [];
+            $creds      = $account->credentials ?? [];
             $canRefresh = filled($creds['app_id'] ?? '')
                 && filled($creds['app_secret'] ?? '')
                 && filled($creds['user_access_token'] ?? '');
@@ -164,13 +164,85 @@ class SocialConnectorRegistry
             }
         }
 
+        // For Instagram, auto-enrich shared credentials from the linked Facebook account.
+        // The only field unique to Instagram is business_account_id — everything else
+        // (app_id, app_secret, access_token) is identical to the Facebook account.
+        if ($account->platform === 'instagram') {
+            $creds = $account->credentials ?? [];
+
+            $missingShared = ! filled($creds['access_token'] ?? '')
+                || ! filled($creds['app_id'] ?? '')
+                || ! filled($creds['app_secret'] ?? '');
+
+            if ($missingShared) {
+                $fbAccount = static::findLinkedFacebookAccount($account);
+
+                if ($fbAccount) {
+                    // Proactively refresh the FB token before pulling credentials
+                    $fbExpiresAt    = $fbAccount->token_expires_at;
+                    $fbNeedsRefresh = $fbExpiresAt === null
+                        || $fbExpiresAt->isPast()
+                        || $fbExpiresAt->diffInHours(now(), true) <= 48;
+
+                    $fbCreds      = $fbAccount->credentials ?? [];
+                    $fbCanRefresh = filled($fbCreds['app_id'] ?? '')
+                        && filled($fbCreds['app_secret'] ?? '')
+                        && filled($fbCreds['user_access_token'] ?? '');
+
+                    if ($fbNeedsRefresh && $fbCanRefresh) {
+                        FacebookConnector::tryRefreshAccount($fbAccount);
+                        $fbAccount->refresh();
+                        $fbCreds = $fbAccount->credentials ?? [];
+                    }
+
+                    // Merge FB credentials as defaults — IG-specific values win if set
+                    $creds = array_merge(
+                        array_filter([
+                            'app_id'       => $fbCreds['app_id'] ?? null,
+                            'app_secret'   => $fbCreds['app_secret'] ?? null,
+                            'access_token' => $fbCreds['page_access_token'] ?? null,
+                            'page_id'      => $fbCreds['page_id'] ?? null,
+                        ], fn ($v) => filled($v)),
+                        array_filter($creds, fn ($v) => filled($v)),
+                    );
+                }
+            }
+
+            return new InstagramConnector($creds);
+        }
+
         $credentials = $account->credentials ?? [];
 
         return match ($account->platform) {
             'facebook' => new FacebookConnector($credentials),
-            'instagram' => new InstagramConnector($credentials),
-            'tiktok' => new TikTokConnector($credentials),
-            default => throw new InvalidArgumentException("No connector registered for platform: {$account->platform}"),
+            'tiktok'   => new TikTokConnector($credentials),
+            default    => throw new InvalidArgumentException("No connector registered for platform: {$account->platform}"),
         };
+    }
+
+    /**
+     * Find the Facebook account linked to a given Instagram account.
+     * Matches by page_id stored in IG credentials, or falls back to any connected FB account.
+     */
+    private static function findLinkedFacebookAccount(SocialAccount $igAccount): ?SocialAccount
+    {
+        $pageId = $igAccount->credentials['page_id'] ?? null;
+
+        if (filled($pageId)) {
+            $match = SocialAccount::where('platform', 'facebook')
+                ->whereRaw('JSON_VALID(`credentials`) = 1')
+                ->where('credentials->page_id', $pageId)
+                ->where('auth_status', 'connected')
+                ->first();
+
+            if ($match) {
+                return $match;
+            }
+        }
+
+        // Fallback: use the single connected Facebook account
+        return SocialAccount::where('platform', 'facebook')
+            ->where('auth_status', 'connected')
+            ->first();
     }
 }

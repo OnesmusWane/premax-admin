@@ -13,6 +13,7 @@ use App\Models\SocialPost;
 use App\Services\Social\FacebookConnector;
 use App\Services\Social\InstagramConnector;
 use App\Support\SocialConnectorRegistry;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
@@ -309,6 +310,8 @@ class SocialMediaController extends Controller
             ]);
         }
 
+        $this->syncInstagramCredentials($socialAccount);
+
         return response()->json($this->serializeAccount($socialAccount->fresh()));
     }
 
@@ -412,9 +415,7 @@ class SocialMediaController extends Controller
                 'last_sync_completed_at' => now(),
             ]);
 
-            if (filled($tokens['page_access_token'])) {
-                $this->syncInstagramPageToken($socialAccount, $tokens['page_access_token']);
-            }
+            $this->syncInstagramCredentials($socialAccount);
 
             Log::info('Facebook OAuth completed — tokens stored', [
                 'account_id'         => $socialAccount->id,
@@ -460,7 +461,7 @@ class SocialMediaController extends Controller
                 'last_synced_at' => now(),
             ]);
 
-            $this->syncInstagramPageToken($socialAccount, $pageToken);
+            $this->syncInstagramCredentials($socialAccount);
 
             return response()->json($this->serializeAccount($socialAccount->fresh()));
         } catch (\Throwable $e) {
@@ -470,32 +471,53 @@ class SocialMediaController extends Controller
         }
     }
 
-    private function syncInstagramPageToken(SocialAccount $fbAccount, string $pageToken): void
+    /**
+     * Sync all Facebook-shared credentials to the linked Instagram account.
+     * Called whenever FB tokens are refreshed or re-authorized so IG stays in sync.
+     * The only field NOT synced is business_account_id — that belongs solely to IG.
+     */
+    private function syncInstagramCredentials(SocialAccount $fbAccount): void
     {
-        $pageId = $fbAccount->credentials['page_id'] ?? null;
+        $fbCreds = $fbAccount->fresh()->credentials ?? [];
+        $pageId  = $fbCreds['page_id'] ?? null;
 
-        if (! filled($pageId)) {
-            return;
+        // Find the linked IG account by page_id first, then any IG account as fallback
+        $igAccount = null;
+
+        if (filled($pageId)) {
+            $igAccount = SocialAccount::where('platform', 'instagram')
+                ->whereRaw('JSON_VALID(`credentials`) = 1')
+                ->where('credentials->page_id', $pageId)
+                ->first();
         }
 
-        $igAccount = SocialAccount::where('platform', 'instagram')
-            ->whereRaw('JSON_VALID(`credentials`) = 1')
-            ->where('credentials->page_id', $pageId)
-            ->first();
+        if (! $igAccount) {
+            $igAccount = SocialAccount::where('platform', 'instagram')->first();
+        }
 
         if (! $igAccount) {
             return;
         }
 
+        $sharedFields = array_filter([
+            'app_id'       => $fbCreds['app_id'] ?? null,
+            'app_secret'   => $fbCreds['app_secret'] ?? null,
+            'access_token' => $fbCreds['page_access_token'] ?? null,
+            'page_id'      => $pageId,
+        ], fn ($v) => filled($v));
+
+        if (empty($sharedFields)) {
+            return;
+        }
+
         $igAccount->update([
-            'credentials' => array_merge($igAccount->credentials ?? [], [
-                'access_token' => $pageToken,
-            ]),
+            'credentials' => array_merge($igAccount->credentials ?? [], $sharedFields),
         ]);
 
-        Log::info('Instagram access_token synced from Facebook OAuth', [
+        Log::info('Instagram credentials synced from Facebook', [
             'fb_account_id' => $fbAccount->id,
             'ig_account_id' => $igAccount->id,
+            'fields_synced' => array_keys($sharedFields),
         ]);
     }
 
@@ -615,52 +637,79 @@ class SocialMediaController extends Controller
     public function storePost(Request $request)
     {
         $data = $request->validate([
-            'title' => 'nullable|string|max:150',
-            'content' => 'required|string|max:5000',
-            'media' => 'nullable|array',
-            'media.*' => 'string|max:2048',
-            'link_url' => 'nullable|url|max:2048',
-            'account_ids' => 'required|array|min:1',
+            'title'         => 'required|string|max:150',
+            'content'       => 'required|string|max:5000',
+            'media'         => 'nullable|array|max:1',
+            'media.*'       => 'string|max:2048',
+            'link_url'      => 'nullable|url|max:2048',
+            'account_ids'   => 'required|array|min:1',
             'account_ids.*' => 'exists:social_accounts,id',
-            'publish_now' => 'nullable|boolean',
+            'publish_now'   => 'nullable|boolean',
             'scheduled_for' => 'nullable|date',
         ]);
 
         $publishNow = (bool) ($data['publish_now'] ?? false);
-        $status = $publishNow ? 'published' : (($data['scheduled_for'] ?? null) ? 'scheduled' : 'draft');
 
-        $post = DB::transaction(function () use ($request, $data, $status, $publishNow) {
-            $post = SocialPost::create([
-                'title' => $data['title'] ?? null,
-                'content' => $data['content'],
-                'media' => $data['media'] ?? [],
-                'link_url' => $data['link_url'] ?? null,
-                'status' => $status,
-                'scheduled_for' => $data['scheduled_for'] ?? null,
-                'published_at' => $publishNow ? now() : null,
-                'created_by' => $request->user()?->id,
+        // Must have either publish_now or a scheduled date — no un-dated drafts
+        if (! $publishNow && empty($data['scheduled_for'])) {
+            throw ValidationException::withMessages([
+                'scheduled_for' => ['Select a publish date or choose "Publish immediately".'],
             ]);
-
-            foreach ($data['account_ids'] as $accountId) {
-                $post->targets()->create([
-                    'social_account_id' => $accountId,
-                    'status' => $publishNow ? 'published' : (($data['scheduled_for'] ?? null) ? 'scheduled' : 'pending'),
-                    'published_at' => $publishNow ? now() : null,
-                ]);
-            }
-
-            return $post;
-        });
-
-        // Dispatch real API publish jobs for each target when publishing immediately
-        if ($publishNow) {
-            $post->targets->each(fn ($target) => PublishSocialPostJob::dispatch($target->id));
         }
 
-        return response()->json(
-            $post->fresh()->load(['creator:id,name', 'targets.account:id,name,platform,username']),
-            201
-        );
+        // Instagram requires at least one media file
+        $hasInstagram = SocialAccount::whereIn('id', $data['account_ids'])
+            ->where('platform', 'instagram')
+            ->exists();
+
+        if ($hasInstagram && empty($data['media'])) {
+            throw ValidationException::withMessages([
+                'media' => ['Instagram requires at least one image or video. Please attach a file.'],
+            ]);
+        }
+
+        $status        = $publishNow ? 'published' : 'scheduled';
+        $targetStatus  = $publishNow ? 'published' : 'scheduled';
+
+        // Create one independent SocialPost per account for clean per-platform management
+        $posts = DB::transaction(function () use ($request, $data, $status, $targetStatus, $publishNow) {
+            $created = [];
+
+            foreach ($data['account_ids'] as $accountId) {
+                $post = SocialPost::create([
+                    'title'         => $data['title'],
+                    'content'       => $data['content'],
+                    'media'         => $data['media'] ?? [],
+                    'link_url'      => $data['link_url'] ?? null,
+                    'status'        => $status,
+                    'scheduled_for' => $publishNow ? null : ($data['scheduled_for'] ?? null),
+                    'published_at'  => $publishNow ? now() : null,
+                    'created_by'    => $request->user()?->id,
+                ]);
+
+                $post->targets()->create([
+                    'social_account_id' => $accountId,
+                    'status'            => $targetStatus,
+                    'published_at'      => $publishNow ? now() : null,
+                ]);
+
+                $created[] = $post;
+            }
+
+            return $created;
+        });
+
+        if ($publishNow) {
+            foreach ($posts as $post) {
+                $post->targets->each(fn ($target) => PublishSocialPostJob::dispatch($target->id));
+            }
+        }
+
+        $serialized = collect($posts)->map(
+            fn ($post) => $post->fresh()->load(['creator:id,name', 'targets.account:id,name,platform,username'])
+        )->all();
+
+        return response()->json(['posts' => $serialized], 201);
     }
 
     public function updatePost(Request $request, SocialPost $socialPost)
@@ -805,12 +854,24 @@ class SocialMediaController extends Controller
                 continue;
             }
 
-            if ($target->account->platform !== 'facebook') {
+            $platform = $target->account->platform;
+
+            if (! in_array($platform, ['facebook', 'instagram'], true)) {
                 $results[] = [
                     'target_id' => $target->id,
-                    'platform' => $target->account->platform,
-                    'status' => 'skipped',
-                    'message' => ucfirst($target->account->platform).' interaction sync is not implemented yet.',
+                    'platform'  => $platform,
+                    'status'    => 'skipped',
+                    'message'   => ucfirst($platform) . ' interaction sync is not supported.',
+                ];
+                continue;
+            }
+
+            if (! filled($target->external_post_id)) {
+                $results[] = [
+                    'target_id' => $target->id,
+                    'platform'  => $platform,
+                    'status'    => 'skipped',
+                    'message'   => 'Post has not been published yet — no external post ID to sync.',
                 ];
                 continue;
             }
@@ -818,28 +879,34 @@ class SocialMediaController extends Controller
             try {
                 $connector = SocialConnectorRegistry::make($target->account);
 
-                if (! $connector instanceof FacebookConnector) {
-                    throw new \RuntimeException('Facebook connector is not available for interaction sync.');
+                if ($platform === 'facebook') {
+                    if (! $connector instanceof FacebookConnector) {
+                        throw new \RuntimeException('Facebook connector unavailable.');
+                    }
+                    $sync = $connector->syncPostInteractions($target);
+                } else {
+                    if (! $connector instanceof InstagramConnector) {
+                        throw new \RuntimeException('Instagram connector unavailable.');
+                    }
+                    $sync = $connector->syncPostComments($target);
                 }
-
-                $sync = $connector->syncPostInteractions($target);
 
                 $results[] = [
                     'target_id' => $target->id,
-                    'platform' => $target->account->platform,
-                    'status' => 'synced',
+                    'platform'  => $platform,
+                    'status'    => 'synced',
                     ...$sync,
                 ];
             } catch (\Throwable $e) {
-                if ($target->account->platform === 'facebook' && FacebookConnector::isExpiredTokenException($e)) {
+                if ($platform === 'facebook' && FacebookConnector::isExpiredTokenException($e)) {
                     $this->markAccountExpired($target->account, $e->getMessage());
                 }
 
                 $results[] = [
                     'target_id' => $target->id,
-                    'platform' => $target->account->platform,
-                    'status' => 'failed',
-                    'message' => $e->getMessage(),
+                    'platform'  => $platform,
+                    'status'    => 'failed',
+                    'message'   => $e->getMessage(),
                 ];
             }
         }
@@ -1287,6 +1354,119 @@ class SocialMediaController extends Controller
                 'synced'  => $synced,
                 'created' => $created,
                 'total'   => $synced + $created,
+            ]);
+        } catch (\Throwable $e) {
+            throw ValidationException::withMessages([
+                'sync' => [$e->getMessage()],
+            ]);
+        }
+    }
+
+    public function syncAccountMessages(SocialAccount $socialAccount)
+    {
+        if (! in_array($socialAccount->platform, ['facebook', 'instagram'], true)) {
+            throw ValidationException::withMessages([
+                'platform' => ['Message sync is only supported for Facebook and Instagram.'],
+            ]);
+        }
+
+        if ($socialAccount->auth_status !== 'connected') {
+            throw ValidationException::withMessages([
+                'account' => ['Account must be connected to sync messages.'],
+            ]);
+        }
+
+        try {
+            $connector     = SocialConnectorRegistry::make($socialAccount);
+            $conversations = $connector->syncConversations(20);
+
+            $pageId       = $socialAccount->credentials['page_id'] ?? null;
+            $igUserId     = $socialAccount->credentials['business_account_id'] ?? null;
+            $ownerId      = $socialAccount->platform === 'facebook' ? $pageId : $igUserId;
+
+            $syncedConversations = 0;
+            $newMessages         = 0;
+
+            DB::transaction(function () use ($socialAccount, $conversations, $ownerId, &$syncedConversations, &$newMessages) {
+                foreach ($conversations as $conv) {
+                    $threadId = (string) ($conv['id'] ?? '');
+                    if (! filled($threadId)) {
+                        continue;
+                    }
+
+                    $participants = $conv['participants']['data'] ?? [];
+                    $customer     = collect($participants)->first(
+                        fn ($p) => ($p['id'] ?? '') !== (string) $ownerId
+                    );
+
+                    $messages    = $conv['messages']['data'] ?? [];
+                    $lastMessage = collect($messages)->sortByDesc('created_time')->first();
+
+                    $conversation = SocialConversation::updateOrCreate(
+                        ['social_account_id' => $socialAccount->id, 'platform_thread_id' => $threadId],
+                        [
+                            'customer_name'        => $customer['name'] ?? ($customer['username'] ?? 'Unknown'),
+                            'customer_handle'      => $customer['username'] ?? ($customer['id'] ?? null),
+                            'status'               => 'open',
+                            'last_message_preview' => mb_substr($lastMessage['message'] ?? '', 0, 100),
+                            'last_message_at'      => filled($lastMessage['created_time'] ?? null)
+                                ? Carbon::parse($lastMessage['created_time'])
+                                : now(),
+                            'unread_count'         => (int) ($conv['unread_count'] ?? 0),
+                            'metadata'             => ['participants' => $participants],
+                        ]
+                    );
+
+                    $syncedConversations++;
+
+                    foreach ($messages as $msg) {
+                        $msgId = (string) ($msg['id'] ?? '');
+                        if (! filled($msgId)) {
+                            continue;
+                        }
+
+                        if (SocialMessage::where('external_message_id', $msgId)->exists()) {
+                            continue;
+                        }
+
+                        $fromId    = (string) ($msg['from']['id'] ?? '');
+                        $direction = ($fromId === (string) $ownerId) ? 'outbound' : 'inbound';
+
+                        SocialMessage::create([
+                            'social_conversation_id' => $conversation->id,
+                            'external_message_id'    => $msgId,
+                            'direction'              => $direction,
+                            'message_type'           => 'text',
+                            'body'                   => $msg['message'] ?? '',
+                            'sent_at'                => filled($msg['created_time'] ?? null)
+                                ? Carbon::parse($msg['created_time'])
+                                : now(),
+                            'metadata' => $msg,
+                        ]);
+
+                        $newMessages++;
+                    }
+                }
+            });
+
+            $socialAccount->update([
+                'inbox_count'   => SocialConversation::where('social_account_id', $socialAccount->id)
+                    ->where('status', 'open')
+                    ->sum('unread_count'),
+                'last_synced_at' => now(),
+            ]);
+
+            Log::info('Account messages synced', [
+                'account_id'           => $socialAccount->id,
+                'platform'             => $socialAccount->platform,
+                'synced_conversations' => $syncedConversations,
+                'new_messages'         => $newMessages,
+            ]);
+
+            return response()->json([
+                'synced_conversations' => $syncedConversations,
+                'new_messages'         => $newMessages,
+                'message'              => "Synced {$syncedConversations} conversation(s), {$newMessages} new message(s).",
             ]);
         } catch (\Throwable $e) {
             throw ValidationException::withMessages([

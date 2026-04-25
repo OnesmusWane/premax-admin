@@ -2,10 +2,15 @@
 
 namespace App\Services\Social;
 
+use App\Models\SocialComment;
+use App\Models\SocialConversation;
+use App\Models\SocialMessage;
 use App\Models\SocialPost;
 use App\Models\SocialPostTarget;
 use App\Services\Social\Contracts\SocialPlatformPublisher;
+use Carbon\Carbon;
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -448,6 +453,103 @@ class InstagramConnector implements SocialPlatformPublisher
             'media_type'       => strtolower($item['media_type'] ?? 'image'),
             'published_at'     => $item['timestamp'] ?? null,
         ])->all();
+    }
+
+    /**
+     * Sync comments for a published Instagram post into SocialComment records.
+     */
+    public function syncPostComments(SocialPostTarget $target): array
+    {
+        $externalPostId = trim((string) ($target->external_post_id ?? ''));
+
+        if (! filled($externalPostId)) {
+            throw new RuntimeException('Instagram external post ID is missing. Publish the post first.');
+        }
+
+        $token = trim((string) ($this->credentials['access_token'] ?? ''));
+
+        $response = Http::get(self::BASE_URL . "/{$externalPostId}/comments", [
+            'fields'       => 'id,text,username,timestamp,replies{id,text,username,timestamp}',
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Instagram comments sync failed: ' . ($response->json('error.message') ?? $response->body()));
+        }
+
+        $commentsData = $response->json('data') ?? [];
+        $count = 0;
+
+        DB::transaction(function () use ($target, $commentsData, &$count) {
+            foreach ($commentsData as $comment) {
+                $commentId = (string) ($comment['id'] ?? '');
+                if (! filled($commentId)) {
+                    continue;
+                }
+
+                SocialComment::updateOrCreate(
+                    ['social_account_id' => $target->social_account_id, 'platform_comment_id' => $commentId],
+                    [
+                        'social_post_id' => $target->social_post_id,
+                        'author_name'    => $comment['username'] ?? 'Instagram User',
+                        'author_handle'  => $comment['username'] ?? null,
+                        'comment_text'   => $comment['text'] ?? '',
+                        'status'         => 'needs_reply',
+                        'received_at'    => filled($comment['timestamp'] ?? null) ? Carbon::parse($comment['timestamp']) : now(),
+                    ]
+                );
+                $count++;
+
+                foreach (($comment['replies']['data'] ?? []) as $reply) {
+                    $replyId = (string) ($reply['id'] ?? '');
+                    if (! filled($replyId)) {
+                        continue;
+                    }
+
+                    SocialComment::updateOrCreate(
+                        ['social_account_id' => $target->social_account_id, 'platform_comment_id' => $replyId],
+                        [
+                            'social_post_id' => $target->social_post_id,
+                            'author_name'    => $reply['username'] ?? 'Instagram User',
+                            'author_handle'  => $reply['username'] ?? null,
+                            'comment_text'   => $reply['text'] ?? '',
+                            'status'         => 'needs_reply',
+                            'received_at'    => filled($reply['timestamp'] ?? null) ? Carbon::parse($reply['timestamp']) : now(),
+                        ]
+                    );
+                    $count++;
+                }
+            }
+        });
+
+        return ['synced_comments' => $count];
+    }
+
+    /**
+     * Fetch recent Instagram DM conversations with embedded messages.
+     * Returns raw API data; the controller handles DB upsert.
+     */
+    public function syncConversations(int $limit = 20): array
+    {
+        $igUserId = trim((string) ($this->credentials['business_account_id'] ?? ''));
+        $token    = trim((string) ($this->credentials['access_token'] ?? ''));
+
+        if (! filled($igUserId) || ! filled($token)) {
+            throw new RuntimeException('business_account_id and access_token are required to sync Instagram conversations.');
+        }
+
+        $response = Http::get(self::BASE_URL . "/{$igUserId}/conversations", [
+            'platform'     => 'instagram',
+            'fields'       => 'id,participants,messages{id,message,from,created_time},updated_time',
+            'limit'        => $limit,
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Instagram conversations sync failed: ' . ($response->json('error.message') ?? $response->body()));
+        }
+
+        return $response->json('data') ?? [];
     }
 
     // ──────────────────────────────────────────────────────────────────────────

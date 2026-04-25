@@ -238,10 +238,12 @@ class FacebookConnector implements SocialPlatformPublisher
             'pages_manage_metadata',
             'pages_show_list',
             'pages_manage_engagement',
+            'pages_messaging',
             'instagram_basic',
             'instagram_content_publish',
             'instagram_manage_comments',
             'instagram_manage_insights',
+            'instagram_manage_messages',
         ]);
 
         return 'https://www.facebook.com/v25.0/dialog/oauth?' . http_build_query([
@@ -444,6 +446,28 @@ class FacebookConnector implements SocialPlatformPublisher
                 'published_at'     => $item['created_time'] ?? null,
             ];
         })->all();
+    }
+
+    /**
+     * Fetch recent Facebook Page conversations with embedded messages.
+     * Returns raw API data; the controller handles DB upsert.
+     */
+    public function syncConversations(int $limit = 20): array
+    {
+        $pageId = trim((string) ($this->credentials['page_id'] ?? ''));
+        $token  = $this->resolvePageToken($pageId);
+
+        $response = Http::get(self::BASE_URL . "/{$pageId}/conversations", [
+            'fields'       => 'id,participants,messages{id,message,from,created_time},updated_time,unread_count',
+            'limit'        => $limit,
+            'access_token' => $token,
+        ]);
+
+        if (! $response->successful()) {
+            throw new RuntimeException('Facebook conversations sync failed: ' . ($response->json('error.message') ?? $response->body()));
+        }
+
+        return $response->json('data') ?? [];
     }
 
     public function publishCommentReply(string $platformCommentId, string $message): string
