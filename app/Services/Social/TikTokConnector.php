@@ -479,7 +479,9 @@ class TikTokConnector implements SocialPlatformPublisher
     private function pollUntilPublished(string $token, string $publishId, int $postId): string
     {
         for ($attempt = 1; $attempt <= self::POLL_ATTEMPTS; $attempt++) {
-            sleep(self::POLL_DELAY_SECONDS);
+            // Use usleep instead of sleep to avoid blocking the queue worker process
+            // in a way that can trigger getmypid() issues on some PHP builds.
+            usleep(self::POLL_DELAY_SECONDS * 1_000_000);
 
             $response = Http::withToken($token)
                 ->contentType('application/json; charset=UTF-8')
@@ -489,8 +491,8 @@ class TikTokConnector implements SocialPlatformPublisher
 
             if (! $response->successful()) {
                 Log::warning('TikTok status poll HTTP error', [
-                    'attempt'    => $attempt,
-                    'publish_id' => $publishId,
+                    'attempt'     => $attempt,
+                    'publish_id'  => $publishId,
                     'http_status' => $response->status(),
                 ]);
                 continue;
@@ -508,9 +510,16 @@ class TikTokConnector implements SocialPlatformPublisher
                 'post_id'    => $postId,
             ]);
 
-            if ($status === 'PUBLISH_COMPLETE') {
+            // PUBLISH_COMPLETE — direct post published successfully
+            // SEND_TO_USER_INBOX — inbox/draft upload delivered (final state for video.upload flow)
+            if ($status === 'PUBLISH_COMPLETE' || $status === 'SEND_TO_USER_INBOX') {
                 $externalId = filled($itemId) ? (string) $itemId : $publishId;
-                Log::info('TikTok video published', ['post_id' => $postId, 'external_id' => $externalId]);
+
+                Log::info('TikTok video delivered', [
+                    'post_id'     => $postId,
+                    'external_id' => $externalId,
+                    'status'      => $status,
+                ]);
 
                 return $externalId;
             }
@@ -523,7 +532,7 @@ class TikTokConnector implements SocialPlatformPublisher
             // PROCESSING_UPLOAD or other transitional state — keep waiting
         }
 
-        // Timed out — store publish_id as the external ID so the admin can check manually
+        // Timed out — store publish_id so the admin can check manually
         Log::warning('TikTok publish status poll timed out — storing publish_id', [
             'publish_id' => $publishId,
             'post_id'    => $postId,
