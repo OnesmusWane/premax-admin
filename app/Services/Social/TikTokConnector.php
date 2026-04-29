@@ -336,69 +336,141 @@ class TikTokConnector implements SocialPlatformPublisher
     // Publishing internals
     // ──────────────────────────────────────────────────────────────────────────
 
+    // Errors that indicate PULL_FROM_URL won't work and we must switch to FILE_UPLOAD
+    private const PULL_URL_BLOCKED_CODES = ['scope_not_authorized', 'url_ownership_unverified'];
+
     private function publishVideo(SocialPost $post, string $token, string $videoUrl): string
     {
-        $payload = [
-            'post_info' => [
-                'title'                    => mb_substr($post->content, 0, self::TITLE_MAX_LENGTH),
-                'privacy_level'            => 'PUBLIC_TO_EVERYONE',
-                'disable_duet'             => false,
-                'disable_comment'          => false,
-                'disable_stitch'           => false,
-                'video_cover_timestamp_ms' => 1000,
-            ],
-            'source_info' => [
-                'source'    => 'PULL_FROM_URL',
-                'video_url' => $videoUrl,
-            ],
+        $postInfo = [
+            'title'                    => mb_substr($post->content, 0, self::TITLE_MAX_LENGTH),
+            'privacy_level'            => 'PUBLIC_TO_EVERYONE',
+            'disable_duet'             => false,
+            'disable_comment'          => false,
+            'disable_stitch'           => false,
+            'video_cover_timestamp_ms' => 1000,
         ];
 
-        // Try direct post first (video.publish scope — requires TikTok app review approval).
-        // If the app is sandboxed or pending review, fall back to inbox upload
-        // (video.upload scope) which sends the video to the creator's TikTok inbox as a draft.
-        $endpoints = [
-            self::API_BASE.'/post/publish/video/init/',
-            self::API_BASE.'/post/publish/inbox/video/init/',
-        ];
+        // Attempt 1: direct post via PULL_FROM_URL (video.publish scope, verified domain).
+        $directResponse = Http::withToken($token)
+            ->contentType('application/json; charset=UTF-8')
+            ->post(self::API_BASE.'/post/publish/video/init/', [
+                'post_info'   => $postInfo,
+                'source_info' => ['source' => 'PULL_FROM_URL', 'video_url' => $videoUrl],
+            ]);
 
-        foreach ($endpoints as $endpoint) {
-            $response = Http::withToken($token)
-                ->contentType('application/json; charset=UTF-8')
-                ->post($endpoint, $payload);
+        $directCode = $directResponse->json('error.code');
 
-            // scope_not_authorized means this endpoint needs a scope the token lacks —
-            // try the next endpoint instead of throwing immediately.
-            if ($response->json('error.code') === 'scope_not_authorized') {
-                Log::warning('TikTok scope_not_authorized — trying fallback endpoint', [
-                    'endpoint' => $endpoint,
-                    'post_id'  => $post->id,
-                ]);
-                continue;
-            }
+        if (! in_array($directCode, self::PULL_URL_BLOCKED_CODES, true)) {
+            $this->assertSuccess($directResponse);
 
-            $this->assertSuccess($response);
-
-            $publishId = $response->json('data.publish_id') ?? '';
+            $publishId = $directResponse->json('data.publish_id') ?? '';
 
             if (! filled($publishId)) {
-                throw new RuntimeException('TikTok did not return a publish_id after initializing the upload.');
+                throw new RuntimeException('TikTok did not return a publish_id.');
             }
 
-            $isInbox = str_contains($endpoint, '/inbox/');
-
-            Log::info('TikTok video upload initialized', [
-                'post_id'    => $post->id,
-                'publish_id' => $publishId,
-                'flow'       => $isInbox ? 'inbox_draft' : 'direct_post',
-            ]);
+            Log::info('TikTok direct post initialized', ['post_id' => $post->id, 'publish_id' => $publishId]);
 
             return $this->pollUntilPublished($token, $publishId, $post->id);
         }
 
-        throw new RuntimeException(
-            'TikTok video publish failed: neither video.publish (direct post) nor video.upload (inbox) '.
-            'scope is authorized. Enable one of these scopes in TikTok Developer Portal and re-authorize the account.'
-        );
+        Log::warning('TikTok PULL_FROM_URL unavailable, switching to inbox FILE_UPLOAD', [
+            'post_id'    => $post->id,
+            'error_code' => $directCode,
+        ]);
+
+        // Attempt 2: inbox draft via FILE_UPLOAD (video.upload scope, no domain verification needed).
+        // The video lands in the creator's TikTok inbox as a draft for manual posting.
+        return $this->publishViaInboxFileUpload($post, $token, $videoUrl, $postInfo);
+    }
+
+    private function publishViaInboxFileUpload(
+        SocialPost $post,
+        string $token,
+        string $videoUrl,
+        array $postInfo,
+    ): string {
+        $tempPath = tempnam(sys_get_temp_dir(), 'tiktok_');
+
+        try {
+            // Stream-download from Cloudinary to a local temp file
+            $downloadOk = Http::withOptions(['sink' => $tempPath])->get($videoUrl)->successful();
+
+            if (! $downloadOk) {
+                throw new RuntimeException('TikTok FILE_UPLOAD: failed to download video from storage URL.');
+            }
+
+            $fileSize    = (int) filesize($tempPath);
+            $chunkSize   = 10 * 1024 * 1024; // 10 MB — within TikTok's 5–64 MB range
+            $totalChunks = (int) ceil($fileSize / $chunkSize);
+
+            // Initialize inbox upload and obtain the upload URL + publish_id
+            $initResponse = Http::withToken($token)
+                ->contentType('application/json; charset=UTF-8')
+                ->post(self::API_BASE.'/post/publish/inbox/video/init/', [
+                    'post_info'   => $postInfo,
+                    'source_info' => [
+                        'source'            => 'FILE_UPLOAD',
+                        'video_size'        => $fileSize,
+                        'chunk_size'        => $chunkSize,
+                        'total_chunk_count' => $totalChunks,
+                    ],
+                ]);
+
+            $this->assertSuccess($initResponse);
+
+            $publishId = $initResponse->json('data.publish_id') ?? '';
+            $uploadUrl = $initResponse->json('data.upload_url') ?? '';
+
+            if (! filled($publishId) || ! filled($uploadUrl)) {
+                throw new RuntimeException('TikTok inbox init did not return publish_id or upload_url.');
+            }
+
+            Log::info('TikTok inbox FILE_UPLOAD initialized', [
+                'post_id'      => $post->id,
+                'publish_id'   => $publishId,
+                'file_size'    => $fileSize,
+                'total_chunks' => $totalChunks,
+            ]);
+
+            // Upload chunks — PUT directly to TikTok's upload server (no Bearer token; auth is in the URL)
+            $handle = fopen($tempPath, 'rb');
+
+            try {
+                for ($i = 0; $i < $totalChunks; $i++) {
+                    $chunk    = fread($handle, $chunkSize);
+                    $chunkLen = strlen($chunk);
+                    $start    = $i * $chunkSize;
+                    $end      = $start + $chunkLen - 1;
+
+                    $chunkResponse = Http::withHeaders([
+                        'Content-Range' => "bytes {$start}-{$end}/{$fileSize}",
+                    ])
+                    ->withBody($chunk, 'video/mp4')
+                    ->put($uploadUrl);
+
+                    if (! $chunkResponse->successful()) {
+                        throw new RuntimeException(
+                            "TikTok chunk {$i} upload failed: HTTP {$chunkResponse->status()}"
+                        );
+                    }
+
+                    Log::info('TikTok chunk uploaded', [
+                        'post_id' => $post->id,
+                        'chunk'   => $i + 1,
+                        'of'      => $totalChunks,
+                    ]);
+                }
+            } finally {
+                fclose($handle);
+            }
+
+            return $this->pollUntilPublished($token, $publishId, $post->id);
+        } finally {
+            if (file_exists($tempPath)) {
+                unlink($tempPath);
+            }
+        }
     }
 
     private function pollUntilPublished(string $token, string $publishId, int $postId): string
