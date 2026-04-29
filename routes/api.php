@@ -39,10 +39,10 @@ Route::get('/gallery', [GalleryController::class, 'publicIndex']);
 // Register this exact URL in Meta Developer Portal → Facebook Login → Valid OAuth Redirect URIs:
 //   https://admin.premaxautoservice.co.ke/api/social-media/oauth/facebook/callback
 Route::get('/social-media/oauth/facebook/callback', [SocialMediaController::class, 'oauthCallback']);
-// TikTok OAuth callback — no auth required.
-// Register this exact URL in TikTok Developer Portal → your app → Redirect URI:
-//   https://admin.premaxautoservice.co.ke/api/social-media/oauth/tiktok/callback
-Route::get('/social-media/oauth/tiktok/callback', [SocialMediaController::class, 'tikTokOAuthCallback']);
+// TikTok OAuth callback — no auth required, account ID in path.
+// Register the per-account URL in TikTok Developer Portal → your app → Redirect URI:
+//   https://admin.premaxautoservice.co.ke/api/social-media/oauth/tiktok/{id}/callback
+Route::get('/social-media/oauth/tiktok/{socialAccount}/callback', [SocialMediaController::class, 'tikTokOAuthCallback']);
 Route::match(['get', 'post'], '/social-media/webhooks/{platform}/{socialAccount}', [SocialMediaController::class, 'webhookCallback']);
 
 // ── Protected (Sanctum) ───────────────────────────────────────────────────────

@@ -488,7 +488,7 @@ class SocialMediaController extends Controller
             ]);
         }
 
-        $redirectUri = url('/api/social-media/oauth/tiktok/callback');
+        $redirectUri = url("/api/social-media/oauth/tiktok/{$socialAccount->id}/callback");
         $state       = encrypt($socialAccount->id . '|' . now()->timestamp);
         $connector   = new TikTokConnector($creds);
 
@@ -499,20 +499,25 @@ class SocialMediaController extends Controller
     }
 
     /**
-     * Fixed-URL TikTok OAuth callback — no auth middleware, no account ID in the path.
+     * Per-account TikTok OAuth callback — no auth middleware, account ID in the path.
      * TikTok redirects here after the user approves the dialog.
-     * Register ONLY this URL in TikTok Developer Portal → your app → Redirect URI:
-     *   https://admin.premaxautoservice.co.ke/api/social-media/oauth/tiktok/callback
+     * Register this URL (per account) in TikTok Developer Portal → your app → Redirect URI:
+     *   https://admin.premaxautoservice.co.ke/api/social-media/oauth/tiktok/{id}/callback
      */
-    public function tikTokOAuthCallback(Request $request)
+    public function tikTokOAuthCallback(Request $request, SocialAccount $socialAccount)
     {
         $frontendBase = rtrim(config('app.url'), '/');
-        $redirectUri  = url('/api/social-media/oauth/tiktok/callback');
+        $redirectUri  = url("/api/social-media/oauth/tiktok/{$socialAccount->id}/callback");
+
+        if ($socialAccount->platform !== 'tiktok') {
+            return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=account_not_found');
+        }
 
         if ($request->has('error')) {
             Log::warning('TikTok OAuth denied by user', [
                 'error'       => $request->input('error'),
                 'description' => $request->input('error_description'),
+                'account_id'  => $socialAccount->id,
             ]);
 
             return redirect($frontendBase . '/social-media?oauth=denied&platform=tiktok');
@@ -525,21 +530,13 @@ class SocialMediaController extends Controller
             return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=missing_params');
         }
 
+        // Verify state was signed by us (CSRF guard) — account ID is already in the route
         try {
-            $decrypted = decrypt($state);
-            $accountId = (int) explode('|', $decrypted)[0];
+            decrypt($state);
         } catch (\Throwable) {
-            Log::error('TikTok OAuth: state decryption failed');
+            Log::error('TikTok OAuth: state verification failed', ['account_id' => $socialAccount->id]);
 
             return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=invalid_state');
-        }
-
-        $socialAccount = SocialAccount::find($accountId);
-
-        if (! $socialAccount || $socialAccount->platform !== 'tiktok') {
-            Log::error('TikTok OAuth: account not found', ['account_id' => $accountId]);
-
-            return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=account_not_found');
         }
 
         try {
