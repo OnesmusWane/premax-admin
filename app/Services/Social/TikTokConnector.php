@@ -99,7 +99,7 @@ class TikTokConnector implements SocialPlatformPublisher
     {
         return self::AUTH_BASE.'?'.http_build_query([
             'client_key'    => $this->credentials['client_key'],
-            'scope'         => 'user.info.basic,video.publish,video.upload',
+            'scope'         => 'user.info.basic,video.upload',
             'response_type' => 'code',
             'redirect_uri'  => $redirectUri,
             'state'         => $state,
