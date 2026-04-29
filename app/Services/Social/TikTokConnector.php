@@ -401,8 +401,11 @@ class TikTokConnector implements SocialPlatformPublisher
             }
 
             $fileSize    = (int) filesize($tempPath);
-            $chunkSize   = 10 * 1024 * 1024; // 10 MB — within TikTok's 5–64 MB range
-            $totalChunks = (int) ceil($fileSize / $chunkSize);
+            $maxChunk    = 10 * 1024 * 1024; // 10 MB — within TikTok's 5–64 MB range
+            $totalChunks = max(1, (int) ceil($fileSize / $maxChunk));
+            // TikTok validates that declared chunk_size matches what is actually uploaded.
+            // For a single-chunk upload the declared size must equal the total file size.
+            $chunkSize   = $totalChunks === 1 ? $fileSize : $maxChunk;
 
             // Initialize inbox upload and obtain the upload URL + publish_id
             $initResponse = Http::withToken($token)
