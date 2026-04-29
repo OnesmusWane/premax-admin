@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\SocialPost;
 use App\Models\SocialPostTarget;
 use App\Services\Social\FacebookConnector;
+use App\Services\Social\TikTokConnector;
 use App\Support\SocialConnectorRegistry;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -81,11 +82,20 @@ class PublishSocialPostJob implements ShouldQueue
         } catch (\Throwable $e) {
             $failureReason = mb_substr($e->getMessage(), 0, 500);
 
-            if ($account->platform === 'facebook' && FacebookConnector::isExpiredTokenException($e)) {
+            $isExpiredToken = ($account->platform === 'facebook' && FacebookConnector::isExpiredTokenException($e))
+                || ($account->platform === 'tiktok' && TikTokConnector::isExpiredTokenException($e));
+
+            if ($isExpiredToken) {
                 // Attempt a silent token refresh and retry once before giving up
                 $account->refresh();
 
-                if (FacebookConnector::tryRefreshAccount($account)) {
+                $refreshed = match ($account->platform) {
+                    'facebook' => FacebookConnector::tryRefreshAccount($account),
+                    'tiktok'   => TikTokConnector::tryRefreshAccount($account),
+                    default    => false,
+                };
+
+                if ($refreshed) {
                     $account->refresh();
 
                     try {
@@ -109,12 +119,12 @@ class PublishSocialPostJob implements ShouldQueue
                 }
 
                 $account->update([
-                    'auth_status'           => 'expired',
-                    'status'                => 'attention',
-                    'is_active'             => false,
-                    'sync_status'           => 'error',
-                    'sync_error'            => $failureReason,
-                    'last_token_checked_at' => now(),
+                    'auth_status'            => 'expired',
+                    'status'                 => 'attention',
+                    'is_active'              => false,
+                    'sync_status'            => 'error',
+                    'sync_error'             => $failureReason,
+                    'last_token_checked_at'  => now(),
                     'last_sync_completed_at' => now(),
                 ]);
             }

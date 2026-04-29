@@ -21,10 +21,10 @@ class SocialConnectorRegistry
                     // App credentials (from TikTok Developer Portal → your app → Key & Secret)
                     ['key' => 'client_key',    'label' => 'Client Key',     'secret' => false, 'required' => true,  'hint' => 'Found in TikTok Developer Portal → your app → Key & Secret'],
                     ['key' => 'client_secret', 'label' => 'Client Secret',  'secret' => true,  'required' => true,  'hint' => 'Found in TikTok Developer Portal → your app → Key & Secret'],
-                    // Per-user credentials (obtained after OAuth)
-                    ['key' => 'open_id',       'label' => 'Open ID',        'secret' => false, 'required' => true,  'hint' => 'Returned alongside the access token during OAuth — the user\'s unique TikTok identifier'],
-                    ['key' => 'access_token',  'label' => 'Access Token',   'secret' => true,  'required' => true,  'hint' => 'OAuth access token with video.publish scope'],
-                    ['key' => 'refresh_token', 'label' => 'Refresh Token',  'secret' => true,  'required' => false, 'hint' => 'Used to refresh the access token when it expires'],
+                    // Per-user credentials — populated automatically after OAuth, not required at account creation
+                    ['key' => 'open_id',       'label' => 'Open ID',        'secret' => false, 'required' => false, 'hint' => 'Auto-filled after OAuth — the user\'s unique TikTok identifier'],
+                    ['key' => 'access_token',  'label' => 'Access Token',   'secret' => true,  'required' => false, 'hint' => 'Auto-filled after OAuth — expires every 24 hours, refreshed automatically'],
+                    ['key' => 'refresh_token', 'label' => 'Refresh Token',  'secret' => true,  'required' => false, 'hint' => 'Auto-filled after OAuth — valid for 365 days, used to renew the access token'],
                     ['key' => 'advertiser_id', 'label' => 'Advertiser ID',  'secret' => false, 'required' => false, 'hint' => 'Optional — only needed for TikTok Ads API integration'],
                 ],
             ],
@@ -209,6 +209,25 @@ class SocialConnectorRegistry
             }
 
             return new InstagramConnector($creds);
+        }
+
+        // For TikTok, proactively refresh tokens expiring within 2 hours.
+        // Access tokens last only 24 hours so we refresh early to avoid publish failures.
+        if ($account->platform === 'tiktok') {
+            $expiresAt    = $account->token_expires_at;
+            $needsRefresh = $expiresAt === null
+                || $expiresAt->isPast()
+                || $expiresAt->diffInHours(now(), true) <= 2;
+
+            $creds      = $account->credentials ?? [];
+            $canRefresh = filled($creds['client_key'] ?? '')
+                && filled($creds['client_secret'] ?? '')
+                && filled($creds['refresh_token'] ?? '');
+
+            if ($needsRefresh && $canRefresh) {
+                TikTokConnector::tryRefreshAccount($account);
+                $account->refresh();
+            }
         }
 
         $credentials = $account->credentials ?? [];

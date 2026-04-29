@@ -494,9 +494,29 @@
                   </button>
                 </div>
 
-                <!-- Sync Posts + Messages — FB and IG only, connected only -->
+                <!-- TikTok OAuth + Token refresh buttons -->
+                <div v-if="account.platform === 'tiktok'" class="border-t border-slate-100 p-3 space-y-2">
+                  <button
+                    @click="connectWithTikTok(account)"
+                    :disabled="connectingTikTokId === account.id"
+                    class="w-full rounded-xl bg-slate-950 px-3 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {{ connectingTikTokId === account.id ? 'Redirecting…' : '🎵 Authorize with TikTok' }}
+                  </button>
+                  <button
+                    v-if="account.credentials?.refresh_token || account.auth_status === 'connected'"
+                    @click="refreshTikTokToken(account)"
+                    :disabled="refreshingTikTokTokenId === account.id"
+                    class="w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                    title="Use the stored refresh_token to get a new 24-hour access token"
+                  >
+                    {{ refreshingTikTokTokenId === account.id ? 'Refreshing…' : 'Refresh Access Token' }}
+                  </button>
+                </div>
+
+                <!-- Sync Posts — FB, IG, and TikTok when connected -->
                 <div
-                  v-if="account.auth_status === 'connected' && ['facebook', 'instagram'].includes(account.platform)"
+                  v-if="account.auth_status === 'connected' && ['facebook', 'instagram', 'tiktok'].includes(account.platform)"
                   class="border-t border-slate-100 px-3 py-2 space-y-2"
                 >
                   <button
@@ -508,6 +528,7 @@
                     {{ syncingPostsId === account.id ? 'Importing Posts…' : '↓ Import Posts from Platform' }}
                   </button>
                   <button
+                    v-if="['facebook', 'instagram'].includes(account.platform)"
                     @click="syncAccountMessages(account)"
                     :disabled="syncingMessagesId === account.id"
                     class="w-full rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-bold text-teal-700 transition hover:bg-teal-100 disabled:opacity-50"
@@ -1207,6 +1228,8 @@ const savingAccount = ref(false)
 const uploadingMedia = ref(false)
 const refreshingTokenId = ref(null)
 const connectingOAuthId = ref(null)
+const connectingTikTokId = ref(null)
+const refreshingTikTokTokenId = ref(null)
 const regeneratingPageTokenId = ref(null)
 const syncingPostsId = ref(null)
 const syncingMessagesId = ref(null)
@@ -1529,17 +1552,22 @@ watch(filteredConversations, (list) => {
 })
 
 onMounted(async () => {
-  // Handle redirect back from Facebook OAuth
+  // Handle redirect back from OAuth flows (Facebook or TikTok)
   const oauthResult = route.query.oauth
+  const oauthPlatform = route.query.platform || 'facebook'
+
   if (oauthResult === 'success') {
-    toast.success('Facebook connected — tokens stored automatically.')
-    router.replace({ query: { ...route.query, oauth: undefined } })
+    const label = oauthPlatform === 'tiktok' ? 'TikTok' : 'Facebook'
+    toast.success(`${label} connected — tokens stored automatically.`)
+    router.replace({ query: { ...route.query, oauth: undefined, platform: undefined } })
   } else if (oauthResult === 'denied') {
-    toast.warning('Facebook authorization was cancelled.')
-    router.replace({ query: { ...route.query, oauth: undefined } })
+    const label = oauthPlatform === 'tiktok' ? 'TikTok' : 'Facebook'
+    toast.warning(`${label} authorization was cancelled.`)
+    router.replace({ query: { ...route.query, oauth: undefined, platform: undefined } })
   } else if (oauthResult === 'error') {
-    toast.error('Facebook OAuth failed. Check logs for details.')
-    router.replace({ query: { ...route.query, oauth: undefined } })
+    const label = oauthPlatform === 'tiktok' ? 'TikTok' : 'Facebook'
+    toast.error(`${label} OAuth failed. Check logs for details.`)
+    router.replace({ query: { ...route.query, oauth: undefined, platform: undefined } })
   }
 
   await loadData()
@@ -2048,6 +2076,37 @@ async function connectWithFacebook(account) {
       || 'Could not start Facebook login. Check that app_id and app_secret are saved.'
     toast.error(msg)
     connectingOAuthId.value = null
+  }
+}
+
+async function connectWithTikTok(account) {
+  connectingTikTokId.value = account.id
+  try {
+    const data = await get(`/admin/social-media/accounts/${account.id}/tiktok-oauth-url`)
+    window.location.href = data.oauth_url
+  } catch (error) {
+    const msg = error.response?.data?.errors?.credentials?.[0]
+      || error.response?.data?.message
+      || 'Could not start TikTok login. Check that client_key and client_secret are saved.'
+    toast.error(msg)
+    connectingTikTokId.value = null
+  }
+}
+
+async function refreshTikTokToken(account) {
+  refreshingTikTokTokenId.value = account.id
+  try {
+    const updated = await post(`/admin/social-media/accounts/${account.id}/refresh-tiktok-token`)
+    accounts.value = accounts.value.map((item) => item.id === updated.id ? updated : item)
+    toast.success(`${account.name} TikTok access token refreshed.`)
+  } catch (error) {
+    const msg = error.response?.data?.errors?.token?.[0]
+      || error.response?.data?.errors?.credentials?.[0]
+      || error.response?.data?.message
+      || 'Token refresh failed. The refresh_token may be expired — re-authorize with TikTok.'
+    toast.error(msg)
+  } finally {
+    refreshingTikTokTokenId.value = null
   }
 }
 

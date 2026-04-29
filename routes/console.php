@@ -111,5 +111,5 @@ Artisan::command('access-control:backfill-users {--email=* : Limit the sync to o
 // Check every minute for scheduled social media posts that are due and dispatch publish jobs
 Schedule::job(new ProcessScheduledSocialPostsJob)->everyMinute();
 
-// Proactively refresh Facebook tokens expiring within 7 days so posts never fail mid-publish
-Schedule::job(new RefreshExpiringSocialTokensJob)->daily();
+// Proactively refresh expiring tokens — every 6 hours for TikTok's 24-hour token lifecycle
+Schedule::job(new RefreshExpiringSocialTokensJob)->everySixHours();

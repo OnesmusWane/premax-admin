@@ -39,6 +39,10 @@ Route::get('/gallery', [GalleryController::class, 'publicIndex']);
 // Register this exact URL in Meta Developer Portal → Facebook Login → Valid OAuth Redirect URIs:
 //   https://admin.premaxautoservice.co.ke/api/social-media/oauth/facebook/callback
 Route::get('/social-media/oauth/facebook/callback', [SocialMediaController::class, 'oauthCallback']);
+// TikTok OAuth callback — no auth required.
+// Register this exact URL in TikTok Developer Portal → your app → Redirect URI:
+//   https://admin.premaxautoservice.co.ke/api/social-media/oauth/tiktok/callback
+Route::get('/social-media/oauth/tiktok/callback', [SocialMediaController::class, 'tikTokOAuthCallback']);
 Route::match(['get', 'post'], '/social-media/webhooks/{platform}/{socialAccount}', [SocialMediaController::class, 'webhookCallback']);
 
 // ── Protected (Sanctum) ───────────────────────────────────────────────────────
@@ -189,6 +193,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/social-media/accounts/{socialAccount}/regenerate-page-token', [SocialMediaController::class, 'regeneratePageToken'])->middleware('permission:social_media.accounts.manage');
     Route::post('/social-media/accounts/{socialAccount}/sync-posts', [SocialMediaController::class, 'syncAccountPosts'])->middleware('permission:social_media.posts.manage');
     Route::post('/social-media/accounts/{socialAccount}/sync-messages', [SocialMediaController::class, 'syncAccountMessages'])->middleware('permission:social_media.inbox.manage');
+    Route::get('/social-media/accounts/{socialAccount}/tiktok-oauth-url', [SocialMediaController::class, 'getTikTokOAuthUrl'])->middleware('permission:social_media.accounts.manage');
+    Route::post('/social-media/accounts/{socialAccount}/refresh-tiktok-token', [SocialMediaController::class, 'refreshTikTokToken'])->middleware('permission:social_media.accounts.manage');
     Route::post('/social-media/media', [SocialMediaController::class, 'uploadMedia'])->middleware('permission:social_media.posts.manage');
     Route::post('/social-media/posts', [SocialMediaController::class, 'storePost'])->middleware('permission:social_media.posts.manage');
     Route::get('/social-media/posts/{socialPost}/comments', [SocialMediaController::class, 'postComments'])->middleware('permission:social_media.engagement.manage');

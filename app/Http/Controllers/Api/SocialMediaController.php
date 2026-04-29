@@ -12,6 +12,7 @@ use App\Models\SocialMessage;
 use App\Models\SocialPost;
 use App\Services\Social\FacebookConnector;
 use App\Services\Social\InstagramConnector;
+use App\Services\Social\TikTokConnector;
 use App\Support\SocialConnectorRegistry;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -469,6 +470,174 @@ class SocialMediaController extends Controller
                 'token' => [$e->getMessage()],
             ]);
         }
+    }
+
+    public function getTikTokOAuthUrl(SocialAccount $socialAccount)
+    {
+        if ($socialAccount->platform !== 'tiktok') {
+            throw ValidationException::withMessages([
+                'platform' => ['OAuth URL generation is only supported for TikTok accounts.'],
+            ]);
+        }
+
+        $creds = $socialAccount->credentials ?? [];
+
+        if (! filled($creds['client_key'] ?? '')) {
+            throw ValidationException::withMessages([
+                'credentials' => ['client_key must be saved before starting the TikTok OAuth flow.'],
+            ]);
+        }
+
+        $redirectUri = url('/api/social-media/oauth/tiktok/callback');
+        $state       = encrypt($socialAccount->id . '|' . now()->timestamp);
+        $connector   = new TikTokConnector($creds);
+
+        return response()->json([
+            'oauth_url'    => $connector->getOAuthUrl($redirectUri, $state),
+            'redirect_uri' => $redirectUri,
+        ]);
+    }
+
+    /**
+     * Fixed-URL TikTok OAuth callback — no auth middleware, no account ID in the path.
+     * TikTok redirects here after the user approves the dialog.
+     * Register ONLY this URL in TikTok Developer Portal → your app → Redirect URI:
+     *   https://admin.premaxautoservice.co.ke/api/social-media/oauth/tiktok/callback
+     */
+    public function tikTokOAuthCallback(Request $request)
+    {
+        $frontendBase = rtrim(config('app.url'), '/');
+        $redirectUri  = url('/api/social-media/oauth/tiktok/callback');
+
+        if ($request->has('error')) {
+            Log::warning('TikTok OAuth denied by user', [
+                'error'       => $request->input('error'),
+                'description' => $request->input('error_description'),
+            ]);
+
+            return redirect($frontendBase . '/social-media?oauth=denied&platform=tiktok');
+        }
+
+        $code  = $request->string('code')->toString();
+        $state = $request->string('state')->toString();
+
+        if (! filled($code) || ! filled($state)) {
+            return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=missing_params');
+        }
+
+        try {
+            $decrypted = decrypt($state);
+            $accountId = (int) explode('|', $decrypted)[0];
+        } catch (\Throwable) {
+            Log::error('TikTok OAuth: state decryption failed');
+
+            return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=invalid_state');
+        }
+
+        $socialAccount = SocialAccount::find($accountId);
+
+        if (! $socialAccount || $socialAccount->platform !== 'tiktok') {
+            Log::error('TikTok OAuth: account not found', ['account_id' => $accountId]);
+
+            return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok&reason=account_not_found');
+        }
+
+        try {
+            $creds     = $socialAccount->credentials ?? [];
+            $connector = new TikTokConnector($creds);
+            $tokens    = $connector->exchangeCodeForTokens($code, $redirectUri);
+
+            $expiresIn = (int) ($tokens['expires_in'] ?? 86400);
+            $expiresAt = now()->addSeconds($expiresIn);
+
+            $socialAccount->update([
+                'credentials' => array_merge($creds, array_filter([
+                    'open_id'       => $tokens['open_id'] ?? null,
+                    'access_token'  => $tokens['access_token'] ?? null,
+                    'refresh_token' => $tokens['refresh_token'] ?? null,
+                ], fn ($v) => $v !== null)),
+                'auth_status'            => 'connected',
+                'status'                 => 'active',
+                'is_active'              => true,
+                'sync_status'            => 'synced',
+                'sync_error'             => null,
+                'token_expires_at'       => $expiresAt,
+                'last_token_checked_at'  => now(),
+                'last_synced_at'         => now(),
+                'last_sync_started_at'   => now(),
+                'last_sync_completed_at' => now(),
+            ]);
+
+            // Pull profile info to populate name, avatar, and follower count
+            try {
+                $freshCreds = $socialAccount->fresh()->credentials ?? [];
+                $userInfo   = (new TikTokConnector($freshCreds))->getUserInfo();
+
+                if (! empty($userInfo)) {
+                    $socialAccount->update([
+                        'external_account_id' => $userInfo['open_id'] ?? $socialAccount->external_account_id,
+                        'username'            => $userInfo['display_name'] ?? $socialAccount->username,
+                        'profile_image_url'   => $userInfo['avatar_url'] ?? $socialAccount->profile_image_url,
+                        'followers_count'     => (int) ($userInfo['follower_count'] ?? $socialAccount->followers_count),
+                    ]);
+                }
+            } catch (\Throwable $profileException) {
+                Log::warning('TikTok OAuth: user info fetch failed (non-fatal)', [
+                    'account_id' => $socialAccount->id,
+                    'error'      => $profileException->getMessage(),
+                ]);
+            }
+
+            Log::info('TikTok OAuth completed — tokens stored', [
+                'account_id' => $socialAccount->id,
+                'open_id'    => $tokens['open_id'] ?? null,
+                'expires_at' => $expiresAt->toIso8601String(),
+            ]);
+
+            return redirect($frontendBase . '/social-media?oauth=success&platform=tiktok');
+        } catch (\Throwable $e) {
+            Log::error('TikTok OAuth callback failed', [
+                'account_id' => $socialAccount->id,
+                'error'      => $e->getMessage(),
+            ]);
+
+            $socialAccount->update([
+                'auth_status' => 'error',
+                'sync_error'  => mb_substr($e->getMessage(), 0, 500),
+            ]);
+
+            return redirect($frontendBase . '/social-media?oauth=error&platform=tiktok');
+        }
+    }
+
+    public function refreshTikTokToken(SocialAccount $socialAccount)
+    {
+        if ($socialAccount->platform !== 'tiktok') {
+            throw ValidationException::withMessages([
+                'platform' => ['Token refresh is only supported for TikTok accounts.'],
+            ]);
+        }
+
+        $creds = $socialAccount->credentials ?? [];
+        $canRefresh = filled($creds['client_key'] ?? '')
+            && filled($creds['client_secret'] ?? '')
+            && filled($creds['refresh_token'] ?? '');
+
+        if (! $canRefresh) {
+            throw ValidationException::withMessages([
+                'credentials' => ['client_key, client_secret, and refresh_token must all be set to refresh the TikTok token.'],
+            ]);
+        }
+
+        $refreshed = TikTokConnector::tryRefreshAccount($socialAccount);
+
+        if (! $refreshed) {
+            throw ValidationException::withMessages([
+                'token' => ['Token refresh failed. The refresh_token may be expired — re-authorize the account via TikTok OAuth.'],
+            ]);
+        }
+
+        return response()->json($this->serializeAccount($socialAccount->fresh()));
     }
 
     /**
@@ -1276,18 +1445,15 @@ class SocialMediaController extends Controller
 
     public function syncAccountPosts(SocialAccount $socialAccount)
     {
-        if (! in_array($socialAccount->platform, ['facebook', 'instagram'], true)) {
+        if (! in_array($socialAccount->platform, ['facebook', 'instagram', 'tiktok'], true)) {
             throw ValidationException::withMessages([
-                'platform' => ['Post sync is only supported for Facebook and Instagram.'],
+                'platform' => ['Post sync is only supported for Facebook, Instagram, and TikTok.'],
             ]);
         }
 
         try {
-            $connector   = SocialConnectorRegistry::make($socialAccount);
-            $platformPosts = match ($socialAccount->platform) {
-                'facebook'  => $connector->syncPlatformPosts(25),
-                'instagram' => $connector->syncPlatformPosts(25),
-            };
+            $connector     = SocialConnectorRegistry::make($socialAccount);
+            $platformPosts = $connector->syncPlatformPosts(25);
 
             $synced  = 0;
             $created = 0;
