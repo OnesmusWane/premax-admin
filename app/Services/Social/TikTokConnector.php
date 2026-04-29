@@ -99,7 +99,7 @@ class TikTokConnector implements SocialPlatformPublisher
     {
         return self::AUTH_BASE.'?'.http_build_query([
             'client_key'    => $this->credentials['client_key'],
-            'scope'         => 'user.info.basic,video.upload',
+            'scope'         => 'user.info.basic,video.publish,video.upload',
             'response_type' => 'code',
             'redirect_uri'  => $redirectUri,
             'state'         => $state,
@@ -335,39 +335,67 @@ class TikTokConnector implements SocialPlatformPublisher
 
     private function publishVideo(SocialPost $post, string $token, string $videoUrl): string
     {
-        // Step 1: Initialize the upload job
-        $response = Http::withToken($token)
-            ->contentType('application/json; charset=UTF-8')
-            ->post(self::API_BASE.'/post/publish/video/init/', [
-                'post_info' => [
-                    'title'                    => mb_substr($post->content, 0, self::TITLE_MAX_LENGTH),
-                    'privacy_level'            => 'PUBLIC_TO_EVERYONE',
-                    'disable_duet'             => false,
-                    'disable_comment'          => false,
-                    'disable_stitch'           => false,
-                    'video_cover_timestamp_ms' => 1000,
-                ],
-                'source_info' => [
-                    'source'    => 'PULL_FROM_URL',
-                    'video_url' => $videoUrl,
-                ],
+        $payload = [
+            'post_info' => [
+                'title'                    => mb_substr($post->content, 0, self::TITLE_MAX_LENGTH),
+                'privacy_level'            => 'PUBLIC_TO_EVERYONE',
+                'disable_duet'             => false,
+                'disable_comment'          => false,
+                'disable_stitch'           => false,
+                'video_cover_timestamp_ms' => 1000,
+            ],
+            'source_info' => [
+                'source'    => 'PULL_FROM_URL',
+                'video_url' => $videoUrl,
+            ],
+        ];
+
+        // Try direct post first (video.publish scope — requires TikTok app review approval).
+        // If the app is sandboxed or pending review, fall back to inbox upload
+        // (video.upload scope) which sends the video to the creator's TikTok inbox as a draft.
+        $endpoints = [
+            self::API_BASE.'/post/publish/video/init/',
+            self::API_BASE.'/post/publish/inbox/video/init/',
+        ];
+
+        foreach ($endpoints as $endpoint) {
+            $response = Http::withToken($token)
+                ->contentType('application/json; charset=UTF-8')
+                ->post($endpoint, $payload);
+
+            // scope_not_authorized means this endpoint needs a scope the token lacks —
+            // try the next endpoint instead of throwing immediately.
+            if ($response->json('error.code') === 'scope_not_authorized') {
+                Log::warning('TikTok scope_not_authorized — trying fallback endpoint', [
+                    'endpoint' => $endpoint,
+                    'post_id'  => $post->id,
+                ]);
+                continue;
+            }
+
+            $this->assertSuccess($response);
+
+            $publishId = $response->json('data.publish_id') ?? '';
+
+            if (! filled($publishId)) {
+                throw new RuntimeException('TikTok did not return a publish_id after initializing the upload.');
+            }
+
+            $isInbox = str_contains($endpoint, '/inbox/');
+
+            Log::info('TikTok video upload initialized', [
+                'post_id'    => $post->id,
+                'publish_id' => $publishId,
+                'flow'       => $isInbox ? 'inbox_draft' : 'direct_post',
             ]);
 
-        $this->assertSuccess($response);
-
-        $publishId = $response->json('data.publish_id') ?? '';
-
-        if (! filled($publishId)) {
-            throw new RuntimeException('TikTok did not return a publish_id after initializing the upload.');
+            return $this->pollUntilPublished($token, $publishId, $post->id);
         }
 
-        Log::info('TikTok video upload initialized', [
-            'post_id'    => $post->id,
-            'publish_id' => $publishId,
-        ]);
-
-        // Step 2: Poll until the video reaches PUBLISH_COMPLETE
-        return $this->pollUntilPublished($token, $publishId, $post->id);
+        throw new RuntimeException(
+            'TikTok video publish failed: neither video.publish (direct post) nor video.upload (inbox) '.
+            'scope is authorized. Enable one of these scopes in TikTok Developer Portal and re-authorize the account.'
+        );
     }
 
     private function pollUntilPublished(string $token, string $publishId, int $postId): string
