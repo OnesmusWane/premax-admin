@@ -169,47 +169,72 @@ class FacebookConnector implements SocialPlatformPublisher
 
     public function inspectToken(): array
     {
-        $userToken = trim((string) ($this->credentials['user_access_token'] ?? ''));
-        $pageToken = trim((string) ($this->credentials['page_access_token'] ?? ''));
-        $tokenToInspect = filled($userToken) ? $userToken : $pageToken;
-        $appId = trim((string) ($this->credentials['app_id'] ?? ''));
+        $systemToken = trim((string) ($this->credentials['system_user_token'] ?? ''));
+        $userToken   = trim((string) ($this->credentials['user_access_token'] ?? ''));
+        $pageToken   = trim((string) ($this->credentials['page_access_token'] ?? ''));
+
+        // System user token takes highest priority — never expires, not session-tied
+        $tokenToInspect = filled($systemToken) ? $systemToken
+            : (filled($userToken) ? $userToken : $pageToken);
+
+        $appId     = trim((string) ($this->credentials['app_id'] ?? ''));
         $appSecret = trim((string) ($this->credentials['app_secret'] ?? ''));
 
         if (! filled($tokenToInspect)) {
             return [
-                'checked' => false,
-                'is_valid' => false,
-                'expires_at' => null,
-                'message' => 'Facebook access token is missing. Reconnect the account to continue.',
+                'checked'       => false,
+                'is_valid'      => false,
+                'type'          => null,
+                'never_expires' => false,
+                'expires_at'    => null,
+                'scopes'        => [],
+                'message'       => 'Facebook access token is missing. Enter a System User Token or reconnect via OAuth.',
             ];
         }
 
         if (! filled($appId) || ! filled($appSecret)) {
             return [
-                'checked' => false,
-                'is_valid' => false,
-                'expires_at' => null,
-                'message' => 'Facebook app_id or app_secret is missing. Update the Facebook account credentials.',
+                'checked'       => false,
+                'is_valid'      => false,
+                'type'          => null,
+                'never_expires' => false,
+                'expires_at'    => null,
+                'scopes'        => [],
+                'message'       => 'Facebook app_id or app_secret is missing. Update the Facebook account credentials.',
             ];
         }
 
         $response = Http::get(self::BASE_URL.'/debug_token', [
-            'input_token' => $tokenToInspect,
+            'input_token'  => $tokenToInspect,
             'access_token' => "{$appId}|{$appSecret}",
         ]);
         $this->assertSuccess($response);
 
-        $data = $response->json('data') ?? [];
-        $expiresAt = filled($data['expires_at'] ?? null)
-            ? Carbon::createFromTimestamp((int) $data['expires_at'])
-            : null;
+        $data         = $response->json('data') ?? [];
+        $type         = (string) ($data['type'] ?? '');
+        $rawExpiresAt = (int) ($data['expires_at'] ?? 0);
+
+        // SYSTEM_USER tokens never expire; PAGE tokens with expires_at=0 are also permanent
+        $neverExpires = $type === 'SYSTEM_USER' || ($type === 'PAGE' && $rawExpiresAt === 0);
+        $expiresAt    = ($neverExpires || $rawExpiresAt === 0)
+            ? null
+            : Carbon::createFromTimestamp($rawExpiresAt);
+
+        Log::info('Facebook token inspected', [
+            'type'          => $type ?: 'unknown',
+            'never_expires' => $neverExpires,
+            'expires_at'    => $expiresAt?->toIso8601String(),
+            'is_valid'      => (bool) ($data['is_valid'] ?? false),
+        ]);
 
         return [
-            'checked' => true,
-            'is_valid' => (bool) ($data['is_valid'] ?? false),
-            'expires_at' => $expiresAt,
-            'scopes' => $data['scopes'] ?? [],
-            'message' => $data['is_valid'] ?? false
+            'checked'       => true,
+            'is_valid'      => (bool) ($data['is_valid'] ?? false),
+            'type'          => $type ?: null,
+            'never_expires' => $neverExpires,
+            'expires_at'    => $expiresAt,
+            'scopes'        => $data['scopes'] ?? [],
+            'message'       => $data['is_valid'] ?? false
                 ? null
                 : ($data['error']['message'] ?? 'Facebook marked this token as invalid. Reconnect the account.'),
         ];
@@ -340,7 +365,18 @@ class FacebookConnector implements SocialPlatformPublisher
      */
     public static function tryRefreshAccount(\App\Models\SocialAccount $account): bool
     {
-        $creds     = $account->credentials ?? [];
+        $creds = $account->credentials ?? [];
+
+        // System User Tokens never expire — refresh not needed, treat as success
+        $systemToken = trim((string) ($creds['system_user_token'] ?? ''));
+        if (filled($systemToken)) {
+            Log::info('Facebook token refresh skipped — system_user_token never expires', [
+                'account_id' => $account->id,
+            ]);
+
+            return true;
+        }
+
         $appId     = trim((string) ($creds['app_id'] ?? ''));
         $appSecret = trim((string) ($creds['app_secret'] ?? ''));
         $userToken = trim((string) ($creds['user_access_token'] ?? ''));
@@ -493,19 +529,24 @@ class FacebookConnector implements SocialPlatformPublisher
 
     private function resolvePageToken(string $pageId): string
     {
-        // Option A: caller already stored a ready-to-use Page Access Token
+        // Option A: system_user_token — highest priority, never expires, not session-tied
+        $systemToken = $this->credentials['system_user_token'] ?? null;
+        if (filled($systemToken)) {
+            return $this->exchangeForPageToken($pageId, $systemToken);
+        }
+
+        // Option B: caller already stored a ready-to-use Page Access Token
         $direct = $this->credentials['page_access_token'] ?? null;
         if (filled($direct)) {
             return $direct;
         }
 
-        // Option B: exchange a User Access Token for a Page token on the fly
+        // Option C: exchange a User Access Token for a Page token on the fly
         $userToken = $this->credentials['user_access_token'] ?? null;
         if (! filled($userToken)) {
             throw new RuntimeException(
-                'Facebook credentials are incomplete. Provide either a page_access_token or a '.
-                'user_access_token (with pages_read_engagement + pages_manage_metadata scopes) '.
-                'so the connector can obtain a Page token automatically.'
+                'Facebook credentials are incomplete. Provide a system_user_token (recommended — never expires), '.
+                'a page_access_token, or a user_access_token so the connector can obtain a Page token automatically.'
             );
         }
 

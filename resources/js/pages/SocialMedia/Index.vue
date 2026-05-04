@@ -450,9 +450,31 @@
                     </span>
                   </div>
 
-                  <div v-if="account.token_expires_at" class="mt-3 text-xs text-slate-500">
-                    Token expires {{ formatDateTime(account.token_expires_at) }}
+                  <!-- Token health indicator -->
+                  <div class="mt-3 space-y-1.5">
+                    <div
+                      v-if="account.never_expires"
+                      class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-bold text-emerald-700"
+                    >
+                      ● Never Expires
+                    </div>
+                    <div
+                      v-else-if="account.token_health && account.token_health !== 'unknown'"
+                      class="inline-flex items-center gap-1.5 text-[11px] font-bold"
+                      :class="tokenHealthClass(account.token_health)"
+                    >
+                      ● {{ tokenHealthLabel(account) }}
+                    </div>
+
+                    <!-- Instagram: show that token is managed via the linked Facebook account -->
+                    <div
+                      v-if="account.platform === 'instagram' && linkedFacebookAccount"
+                      class="text-[11px] text-slate-400"
+                    >
+                      Token synced from {{ linkedFacebookAccount.name }}
+                    </div>
                   </div>
+
                   <div v-if="account.sync_error" class="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs leading-5 text-red-700">
                     {{ account.sync_error }}
                   </div>
@@ -538,34 +560,101 @@
                   </button>
                 </div>
 
+                <!-- Facebook connection methods -->
                 <div v-if="account.platform === 'facebook'" class="border-t border-slate-100 p-3 space-y-2">
-                  <!-- Primary: Authorize with Facebook — runs full OAuth, auto-populates all tokens -->
-                  <button
-                    @click="connectWithFacebook(account)"
-                    :disabled="connectingOAuthId === account.id"
-                    class="w-full rounded-xl bg-[#1877F2] px-3 py-2.5 text-sm font-bold text-white transition hover:bg-[#1463cc] disabled:opacity-50"
-                  >
-                    {{ connectingOAuthId === account.id ? 'Redirecting…' : '🔗 Authorize with Facebook' }}
-                  </button>
 
-                  <!-- Secondary row: extend the stored user token OR re-fetch the page token -->
-                  <div class="grid grid-cols-2 gap-2">
+                  <!-- ── PRIMARY: System User Token ─────────────────────────────── -->
+                  <div class="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                      <div class="text-xs font-black text-emerald-800">System User Token</div>
+                      <span class="rounded-md bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">Recommended · Never Expires</span>
+                    </div>
+
+                    <!-- Token already saved → show active state -->
+                    <div v-if="hasSystemUserToken(account) && !showSystemTokenInput[account.id]" class="flex items-center gap-2">
+                      <span class="flex-1 text-[11px] font-bold text-emerald-700">✓ Active — not session-tied, never expires</span>
+                      <button
+                        @click="showSystemTokenInput[account.id] = true"
+                        class="text-[10px] font-bold text-emerald-600 underline hover:text-emerald-800"
+                      >
+                        Replace
+                      </button>
+                    </div>
+
+                    <!-- Input form: shown when no token saved, or replacing -->
+                    <div v-if="!hasSystemUserToken(account) || showSystemTokenInput[account.id]" class="space-y-2">
+                      <input
+                        v-model="systemTokenInputs[account.id]"
+                        type="password"
+                        class="w-full rounded-xl border border-emerald-200 bg-white px-3 py-2 text-xs outline-none placeholder:text-slate-400 focus:border-emerald-400"
+                        placeholder="EAAxxxxxxxxxxxxxxxxxx"
+                        autocomplete="off"
+                      />
+                      <div class="flex gap-2">
+                        <button
+                          @click="verifySystemUserToken(account)"
+                          :disabled="verifyingSystemTokenId === account.id || !systemTokenInputs[account.id]?.trim()"
+                          class="flex-1 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          {{ verifyingSystemTokenId === account.id ? 'Verifying…' : 'Verify & Save' }}
+                        </button>
+                        <button
+                          v-if="hasSystemUserToken(account)"
+                          @click="showSystemTokenInput[account.id] = false; systemTokenInputs[account.id] = ''"
+                          class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <p class="text-[10px] leading-4 text-emerald-700">
+                        Get it: Meta Business Suite → Settings → Users → System Users → Generate Token
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- ── FALLBACK: Manual OAuth Connection ──────────────────────── -->
+                  <div>
                     <button
-                      @click="refreshToken(account)"
-                      :disabled="refreshingTokenId === account.id"
-                      class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
-                      title="Extend user_access_token by 60 days using the stored token"
+                      @click="showOAuthFallback[account.id] = !showOAuthFallback[account.id]"
+                      class="flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-500 transition hover:bg-slate-50"
                     >
-                      {{ refreshingTokenId === account.id ? 'Extending…' : 'Extend User Token' }}
+                      Manual OAuth Connection (Fallback)
+                      <ChevronDownIcon
+                        class="h-3.5 w-3.5 transition-transform"
+                        :class="showOAuthFallback[account.id] ? 'rotate-180' : ''"
+                      />
                     </button>
-                    <button
-                      @click="regeneratePageToken(account)"
-                      :disabled="regeneratingPageTokenId === account.id"
-                      class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
-                      title="Re-fetch page_access_token using the stored user_access_token"
-                    >
-                      {{ regeneratingPageTokenId === account.id ? 'Fetching…' : 'Refresh Page Token' }}
-                    </button>
+
+                    <div v-if="showOAuthFallback[account.id]" class="mt-2 space-y-2">
+                      <div class="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-[10px] font-semibold text-amber-700">
+                        OAuth tokens are tied to your browser session and may expire unexpectedly. Use the System User Token above when possible.
+                      </div>
+                      <button
+                        @click="connectWithFacebook(account)"
+                        :disabled="connectingOAuthId === account.id"
+                        class="w-full rounded-xl bg-[#1877F2] px-3 py-2.5 text-sm font-bold text-white transition hover:bg-[#1463cc] disabled:opacity-50"
+                      >
+                        {{ connectingOAuthId === account.id ? 'Redirecting…' : '🔗 Authorize with Facebook' }}
+                      </button>
+                      <div class="grid grid-cols-2 gap-2">
+                        <button
+                          @click="refreshToken(account)"
+                          :disabled="refreshingTokenId === account.id"
+                          class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700 transition hover:bg-amber-100 disabled:opacity-50"
+                          title="Extend user_access_token by 60 days"
+                        >
+                          {{ refreshingTokenId === account.id ? 'Extending…' : 'Extend User Token' }}
+                        </button>
+                        <button
+                          @click="regeneratePageToken(account)"
+                          :disabled="regeneratingPageTokenId === account.id"
+                          class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-100 disabled:opacity-50"
+                          title="Re-fetch page_access_token using the stored user_access_token"
+                        >
+                          {{ regeneratingPageTokenId === account.id ? 'Fetching…' : 'Refresh Page Token' }}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </article>
@@ -1162,6 +1251,7 @@ import {
   BellIcon,
   ChatBubbleOvalLeftIcon,
   CheckCircleIcon,
+  ChevronDownIcon,
   ChevronLeftIcon,
   EllipsisVerticalIcon,
   EyeIcon,
@@ -1233,6 +1323,10 @@ const refreshingTikTokTokenId = ref(null)
 const regeneratingPageTokenId = ref(null)
 const syncingPostsId = ref(null)
 const syncingMessagesId = ref(null)
+const verifyingSystemTokenId = ref(null)
+const systemTokenInputs = ref({})   // { [accountId]: tokenString }
+const showSystemTokenInput = ref({}) // { [accountId]: bool } — show replace-input form
+const showOAuthFallback = ref({})    // { [accountId]: bool } — expand OAuth fallback section
 const retryingPostId = ref(null)
 const dragOver = ref(false)
 const fileInputRef = ref(null)
@@ -2107,6 +2201,65 @@ async function refreshTikTokToken(account) {
     toast.error(msg)
   } finally {
     refreshingTikTokTokenId.value = null
+  }
+}
+
+// ── System User Token helpers ─────────────────────────────────────────────────
+
+function hasSystemUserToken(account) {
+  // The backend masks secrets but keeps the key present; any non-empty masked value means it's set
+  return !!account.connection_setup?.credentials?.system_user_token
+}
+
+function tokenHealthClass(health) {
+  return {
+    'text-emerald-600': health === 'healthy',
+    'text-amber-600':   health === 'expiring_soon',
+    'text-red-600':     health === 'expired',
+    'text-slate-400':   health === 'unknown',
+  }
+}
+
+function tokenHealthLabel(account) {
+  if (account.never_expires) return 'Permanent — never expires'
+  if (account.token_health === 'expiring_soon') {
+    const d = account.days_until_expiry
+    return d != null ? `Expires in ${d} day${d === 1 ? '' : 's'} — refresh soon` : 'Expiring soon'
+  }
+  if (account.token_health === 'expired') return 'Token expired — reconnect'
+  if (account.token_health === 'healthy') {
+    const d = account.days_until_expiry
+    return d != null ? `Healthy — expires in ${d} day${d === 1 ? '' : 's'}` : 'Healthy'
+  }
+  return ''
+}
+
+async function verifySystemUserToken(account) {
+  const token = systemTokenInputs.value[account.id]?.trim()
+  if (!token) {
+    toast.error('Enter the System User Token first.')
+    return
+  }
+
+  verifyingSystemTokenId.value = account.id
+
+  try {
+    const updated = await post(`/admin/social-media/accounts/${account.id}/verify-system-token`, {
+      system_user_token: token,
+    })
+    accounts.value = accounts.value.map((item) => (item.id === updated.id ? updated : item))
+    systemTokenInputs.value[account.id] = ''
+    showSystemTokenInput.value[account.id] = false
+    toast.success(`${account.name} — System User Token verified and saved. This token never expires.`)
+  } catch (error) {
+    const msg =
+      error.response?.data?.errors?.system_user_token?.[0] ||
+      error.response?.data?.errors?.credentials?.[0] ||
+      error.response?.data?.message ||
+      'Token verification failed. Check the token and required permissions.'
+    toast.error(msg)
+  } finally {
+    verifyingSystemTokenId.value = null
   }
 }
 

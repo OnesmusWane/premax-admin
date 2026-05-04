@@ -374,6 +374,47 @@ class InstagramConnector implements SocialPlatformPublisher
     }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // Token sync from Facebook
+    // ──────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Copy the best available token from a linked Facebook account into this
+     * Instagram account's access_token credential.
+     * Prefers system_user_token (never-expiring) over page_access_token.
+     */
+    public static function syncTokenFromFacebook(
+        \App\Models\SocialAccount $fbAccount,
+        \App\Models\SocialAccount $igAccount
+    ): void {
+        $fbCreds = $fbAccount->credentials ?? [];
+
+        // Prefer the never-expiring system user token when available
+        $token     = $fbCreds['system_user_token'] ?? $fbCreds['page_access_token'] ?? null;
+        $tokenType = filled($fbCreds['system_user_token'] ?? null) ? 'system_user_token' : 'page_access_token';
+
+        if (! filled($token)) {
+            Log::warning('Instagram token sync from Facebook skipped — no usable token found on FB account', [
+                'fb_account_id' => $fbAccount->id,
+                'ig_account_id' => $igAccount->id,
+            ]);
+
+            return;
+        }
+
+        $igAccount->update([
+            'credentials' => array_merge($igAccount->credentials ?? [], [
+                'access_token' => $token,
+            ]),
+        ]);
+
+        Log::info('Instagram access_token synced from Facebook', [
+            'fb_account_id' => $fbAccount->id,
+            'ig_account_id' => $igAccount->id,
+            'source'        => $tokenType,
+        ]);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Token validation
     // ──────────────────────────────────────────────────────────────────────────
 

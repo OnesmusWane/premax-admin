@@ -113,3 +113,6 @@ Schedule::job(new ProcessScheduledSocialPostsJob)->everyMinute();
 
 // Proactively refresh expiring tokens — every 6 hours for TikTok's 24-hour token lifecycle
 Schedule::job(new RefreshExpiringSocialTokensJob)->everySixHours();
+
+// Check Facebook / Instagram token health every 6 hours; refresh tokens expiring within 7 days
+Schedule::command(\App\Console\Commands\CheckSocialTokenHealth::class)->everySixHours();

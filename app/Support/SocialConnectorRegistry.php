@@ -37,9 +37,11 @@ class SocialConnectorRegistry
                     ['key' => 'app_secret',         'label' => 'App Secret',          'secret' => true,  'required' => true,  'hint' => 'Found in Meta Developer Portal → your app → Settings → Basic'],
                     // Page targeting
                     ['key' => 'page_id',            'label' => 'Page ID',             'secret' => false, 'required' => true,  'hint' => 'Numeric ID of the Facebook Page to post on — Page → About → Page Transparency'],
-                    // v25.0 token: provide either a ready-made Page token OR a User token for auto-exchange
-                    ['key' => 'user_access_token',  'label' => 'User Access Token',   'secret' => true,  'required' => false, 'hint' => 'v25.0 preferred: a long-lived User token with pages_read_engagement + pages_manage_metadata scopes — the connector exchanges it for a Page token automatically'],
-                    ['key' => 'page_access_token',  'label' => 'Page Access Token',   'secret' => true,  'required' => false, 'hint' => 'Alternative: paste a Page Access Token directly (obtained via Graph API Explorer or your OAuth callback). Leave blank if using User Access Token above'],
+                    // Primary (recommended): System User Token — never expires, not session-tied
+                    ['key' => 'system_user_token',  'label' => 'System User Token',   'secret' => true,  'required' => false, 'hint' => 'Recommended: never-expiring token from Meta Business Suite → Settings → Users → System Users → Generate Token. If provided, this takes priority over OAuth tokens and works for both Facebook and Instagram posting.'],
+                    // OAuth fallback tokens
+                    ['key' => 'user_access_token',  'label' => 'User Access Token',   'secret' => true,  'required' => false, 'hint' => 'Manual OAuth fallback: a long-lived User token with pages_read_engagement + pages_manage_metadata scopes — the connector exchanges it for a Page token automatically'],
+                    ['key' => 'page_access_token',  'label' => 'Page Access Token',   'secret' => true,  'required' => false, 'hint' => 'Manual OAuth fallback: paste a Page Access Token directly (obtained via Graph API Explorer or your OAuth callback). Leave blank if using System User Token or User Access Token above'],
                     ['key' => 'business_id',        'label' => 'Business ID',         'secret' => false, 'required' => false, 'hint' => 'Optional — Meta Business Manager ID'],
                 ],
             ],
@@ -195,12 +197,13 @@ class SocialConnectorRegistry
                         $fbCreds = $fbAccount->credentials ?? [];
                     }
 
-                    // Merge FB credentials as defaults — IG-specific values win if set
+                    // Merge FB credentials as defaults — IG-specific values win if set.
+                    // Prefer system_user_token (never-expiring) over page_access_token for IG access_token.
                     $creds = array_merge(
                         array_filter([
                             'app_id'       => $fbCreds['app_id'] ?? null,
                             'app_secret'   => $fbCreds['app_secret'] ?? null,
-                            'access_token' => $fbCreds['page_access_token'] ?? null,
+                            'access_token' => $fbCreds['system_user_token'] ?? $fbCreds['page_access_token'] ?? null,
                             'page_id'      => $fbCreds['page_id'] ?? null,
                         ], fn ($v) => filled($v)),
                         array_filter($creds, fn ($v) => filled($v)),

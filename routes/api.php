@@ -195,6 +195,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/social-media/accounts/{socialAccount}/sync-messages', [SocialMediaController::class, 'syncAccountMessages'])->middleware('permission:social_media.inbox.manage');
     Route::get('/social-media/accounts/{socialAccount}/tiktok-oauth-url', [SocialMediaController::class, 'getTikTokOAuthUrl'])->middleware('permission:social_media.accounts.manage');
     Route::post('/social-media/accounts/{socialAccount}/refresh-tiktok-token', [SocialMediaController::class, 'refreshTikTokToken'])->middleware('permission:social_media.accounts.manage');
+    Route::post('/social-media/accounts/{socialAccount}/verify-system-token', [SocialMediaController::class, 'verifySystemUserToken'])->middleware('permission:social_media.accounts.manage');
     Route::post('/social-media/media', [SocialMediaController::class, 'uploadMedia'])->middleware('permission:social_media.posts.manage');
     Route::post('/social-media/posts', [SocialMediaController::class, 'storePost'])->middleware('permission:social_media.posts.manage');
     Route::get('/social-media/posts/{socialPost}/comments', [SocialMediaController::class, 'postComments'])->middleware('permission:social_media.engagement.manage');

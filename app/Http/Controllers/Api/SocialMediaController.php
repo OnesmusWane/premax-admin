@@ -228,8 +228,10 @@ class SocialMediaController extends Controller
                 $connector = SocialConnectorRegistry::make($socialAccount);
 
                 if ($connector instanceof FacebookConnector) {
-                    $inspection = $connector->inspectToken();
-                    $expiresAt = $inspection['expires_at'] ?? null;
+                    $inspection   = $connector->inspectToken();
+                    $expiresAt    = $inspection['expires_at'] ?? null;
+                    $neverExpires = $inspection['never_expires'] ?? false;
+                    $tokenType    = strtolower($inspection['type'] ?? 'unknown');
 
                     if (! ($inspection['checked'] ?? false) || ! ($inspection['is_valid'] ?? false)) {
                         $this->markAccountExpired(
@@ -241,16 +243,63 @@ class SocialMediaController extends Controller
                         return response()->json($this->serializeAccount($socialAccount->fresh()));
                     }
 
+                    // System User / non-expiring tokens — mark healthy, no refresh needed
+                    if ($neverExpires) {
+                        Log::info('Facebook syncAccount — never-expiring token, skipping refresh', [
+                            'account_id' => $socialAccount->id,
+                            'token_type' => $tokenType,
+                        ]);
+
+                        $socialAccount->update([
+                            'auth_status'            => 'connected',
+                            'status'                 => 'active',
+                            'is_active'              => true,
+                            'sync_status'            => 'synced',
+                            'sync_error'             => null,
+                            'token_expires_at'       => null,
+                            'last_token_checked_at'  => now(),
+                            'last_synced_at'         => now(),
+                            'last_sync_completed_at' => now(),
+                            'metadata'               => array_merge($socialAccount->metadata ?? [], [
+                                'token_type' => $tokenType,
+                            ]),
+                        ]);
+
+                        return response()->json($this->serializeAccount($socialAccount->fresh()));
+                    }
+
+                    // Token expires within 7 days — attempt refresh proactively
+                    if ($expiresAt && now()->diffInDays($expiresAt, false) <= 7) {
+                        $refreshed = FacebookConnector::tryRefreshAccount($socialAccount);
+
+                        if (! $refreshed) {
+                            $this->markAccountExpired(
+                                $socialAccount,
+                                'Facebook token has expired and could not be refreshed. Reconnect the account.',
+                                $expiresAt,
+                            );
+
+                            return response()->json($this->serializeAccount($socialAccount->fresh()));
+                        }
+
+                        $socialAccount->refresh();
+                        $expiresAt = $socialAccount->token_expires_at;
+                        $tokenType = $tokenType ?: 'user';
+                    }
+
                     $socialAccount->update([
-                        'auth_status' => 'connected',
-                        'status' => 'active',
-                        'is_active' => true,
-                        'sync_status' => 'synced',
-                        'sync_error' => null,
-                        'token_expires_at' => $expiresAt,
-                        'last_token_checked_at' => now(),
-                        'last_synced_at' => now(),
+                        'auth_status'            => 'connected',
+                        'status'                 => 'active',
+                        'is_active'              => true,
+                        'sync_status'            => 'synced',
+                        'sync_error'             => null,
+                        'token_expires_at'       => $expiresAt,
+                        'last_token_checked_at'  => now(),
+                        'last_synced_at'         => now(),
                         'last_sync_completed_at' => now(),
+                        'metadata'               => array_merge($socialAccount->metadata ?? [], [
+                            'token_type' => $tokenType,
+                        ]),
                     ]);
 
                     return response()->json($this->serializeAccount($socialAccount->fresh()));
@@ -314,6 +363,99 @@ class SocialMediaController extends Controller
         $this->syncInstagramCredentials($socialAccount);
 
         return response()->json($this->serializeAccount($socialAccount->fresh()));
+    }
+
+    public function verifySystemUserToken(Request $request, SocialAccount $socialAccount)
+    {
+        if ($socialAccount->platform !== 'facebook') {
+            throw ValidationException::withMessages([
+                'platform' => ['System User Token verification is only supported for Facebook accounts.'],
+            ]);
+        }
+
+        $data = $request->validate([
+            'system_user_token' => 'required|string|max:1000',
+        ]);
+
+        $creds = $socialAccount->credentials ?? [];
+
+        if (! filled($creds['app_id'] ?? '') || ! filled($creds['app_secret'] ?? '')) {
+            throw ValidationException::withMessages([
+                'credentials' => ['app_id and app_secret must be saved before verifying a System User Token.'],
+            ]);
+        }
+
+        // Inspect the token using a temporary connector with the candidate token
+        $tempCreds  = array_merge($creds, ['system_user_token' => $data['system_user_token']]);
+        $connector  = new FacebookConnector($tempCreds);
+        $inspection = $connector->inspectToken();
+
+        if (! ($inspection['is_valid'] ?? false)) {
+            throw ValidationException::withMessages([
+                'system_user_token' => [$inspection['message'] ?? 'The token is not valid.'],
+            ]);
+        }
+
+        if (($inspection['type'] ?? '') !== 'SYSTEM_USER') {
+            throw ValidationException::withMessages([
+                'system_user_token' => [
+                    'The provided token is not a System User Token (detected type: '.($inspection['type'] ?? 'unknown').'). '.
+                    'Generate a token via Meta Business Suite → Settings → Users → System Users.',
+                ],
+            ]);
+        }
+
+        // Verify all required permissions are present
+        $scopes = $inspection['scopes'] ?? [];
+        $requiredFacebook  = ['pages_manage_posts', 'pages_read_engagement', 'pages_show_list', 'pages_manage_metadata', 'pages_manage_engagement'];
+        $requiredInstagram = ['instagram_basic', 'instagram_content_publish', 'instagram_manage_comments', 'instagram_manage_insights'];
+        $missing = array_values(array_diff(array_merge($requiredFacebook, $requiredInstagram), $scopes));
+
+        if (! empty($missing)) {
+            Log::warning('Facebook System User Token missing required scopes', [
+                'account_id' => $socialAccount->id,
+                'missing'    => $missing,
+            ]);
+
+            throw ValidationException::withMessages([
+                'system_user_token' => ['Token is missing required permissions: '.implode(', ', $missing).'. Regenerate the token with all required scopes.'],
+            ]);
+        }
+
+        $socialAccount->update([
+            'credentials' => array_merge($creds, [
+                'system_user_token' => $data['system_user_token'],
+            ]),
+            'auth_status'            => 'connected',
+            'status'                 => 'active',
+            'is_active'              => true,
+            'sync_status'            => 'synced',
+            'sync_error'             => null,
+            'token_expires_at'       => null,
+            'last_token_checked_at'  => now(),
+            'last_synced_at'         => now(),
+            'metadata'               => array_merge($socialAccount->metadata ?? [], [
+                'token_type' => 'system_user',
+            ]),
+        ]);
+
+        Log::info('Facebook System User Token verified and saved', [
+            'account_id' => $socialAccount->id,
+            'scopes'     => $scopes,
+        ]);
+
+        // Propagate the system_user_token to the linked Instagram account as its access_token
+        $this->syncInstagramCredentials($socialAccount->fresh());
+
+        return response()->json(array_merge(
+            $this->serializeAccount($socialAccount->fresh()),
+            [
+                'token_verified' => true,
+                'token_type'     => 'system_user',
+                'never_expires'  => true,
+                'scopes'         => $scopes,
+            ]
+        ));
     }
 
     public function getOAuthRedirectUrl(SocialAccount $socialAccount)
@@ -399,6 +541,9 @@ class SocialMediaController extends Controller
                 ? now()->addSeconds($tokens['expires_in'])
                 : null;
 
+            // If a system_user_token is already stored, preserve it — OAuth tokens are fallback only
+            $hasSystemToken = filled($creds['system_user_token'] ?? null);
+
             $socialAccount->update([
                 'credentials' => array_merge($creds, array_filter([
                     'user_access_token' => $tokens['user_access_token'],
@@ -409,11 +554,14 @@ class SocialMediaController extends Controller
                 'is_active'              => true,
                 'sync_status'            => 'synced',
                 'sync_error'             => null,
-                'token_expires_at'       => $expiresAt,
+                'token_expires_at'       => $hasSystemToken ? null : $expiresAt,
                 'last_token_checked_at'  => now(),
                 'last_synced_at'         => now(),
                 'last_sync_started_at'   => now(),
                 'last_sync_completed_at' => now(),
+                'metadata'               => array_merge($socialAccount->metadata ?? [], [
+                    'token_type' => $hasSystemToken ? 'system_user' : 'user',
+                ]),
             ]);
 
             $this->syncInstagramCredentials($socialAccount);
@@ -422,6 +570,7 @@ class SocialMediaController extends Controller
                 'account_id'         => $socialAccount->id,
                 'page_token_fetched' => filled($tokens['page_access_token']),
                 'expires_at'         => $expiresAt?->toIso8601String(),
+                'system_token_kept'  => $hasSystemToken,
             ]);
 
             return redirect($frontendBase . '/social-media?oauth=success');
@@ -668,7 +817,8 @@ class SocialMediaController extends Controller
         $sharedFields = array_filter([
             'app_id'       => $fbCreds['app_id'] ?? null,
             'app_secret'   => $fbCreds['app_secret'] ?? null,
-            'access_token' => $fbCreds['page_access_token'] ?? null,
+            // Prefer the never-expiring system_user_token over page_access_token for IG
+            'access_token' => $fbCreds['system_user_token'] ?? $fbCreds['page_access_token'] ?? null,
             'page_id'      => $pageId,
         ], fn ($v) => filled($v));
 
@@ -1304,6 +1454,51 @@ class SocialMediaController extends Controller
             'webhook_callback_url' => url("/api/social-media/webhooks/{$account->platform}/{$account->id}"),
         ];
 
+        $creds    = $account->credentials ?? [];
+        $metadata = $account->metadata ?? [];
+
+        // Derive token type — credentials are the ground truth, metadata is a cached hint
+        if (filled($creds['system_user_token'] ?? null)) {
+            $tokenType = 'system_user';
+        } elseif (! empty($metadata['token_type']) && $metadata['token_type'] !== 'unknown') {
+            $tokenType = $metadata['token_type'];
+        } elseif ($account->platform === 'facebook') {
+            $tokenType = filled($creds['page_access_token'] ?? null) ? 'page'
+                : (filled($creds['user_access_token'] ?? null) ? 'user' : 'unknown');
+        } elseif ($account->platform === 'instagram' && filled($creds['access_token'] ?? null)) {
+            $tokenType = 'user';
+        } else {
+            $tokenType = 'unknown';
+        }
+
+        $neverExpires = $tokenType === 'system_user'
+            || ($tokenType === 'page' && $account->token_expires_at === null);
+
+        $expiresAt       = $account->token_expires_at;
+        $daysUntilExpiry = null;
+
+        if ($expiresAt !== null && ! $neverExpires) {
+            $daysUntilExpiry = max(0, (int) now()->diffInDays($expiresAt, false));
+        }
+
+        if ($neverExpires) {
+            $tokenHealth = 'healthy';
+        } elseif ($account->auth_status === 'expired') {
+            $tokenHealth = 'expired';
+        } elseif ($account->auth_status === 'connected') {
+            if ($expiresAt === null) {
+                $tokenHealth = 'unknown';
+            } elseif ($expiresAt->isPast()) {
+                $tokenHealth = 'expired';
+            } elseif ($daysUntilExpiry !== null && $daysUntilExpiry <= 7) {
+                $tokenHealth = 'expiring_soon';
+            } else {
+                $tokenHealth = 'healthy';
+            }
+        } else {
+            $tokenHealth = 'unknown';
+        }
+
         return [
             'id' => $account->id,
             'platform' => $account->platform,
@@ -1321,7 +1516,11 @@ class SocialMediaController extends Controller
             'sync_frequency_minutes' => $account->sync_frequency_minutes,
             'sync_status' => $account->sync_status,
             'sync_error' => $account->sync_error,
-            'token_expires_at' => optional($account->token_expires_at)?->toISOString(),
+            'token_expires_at' => optional($expiresAt)?->toISOString(),
+            'token_type' => $tokenType,
+            'never_expires' => $neverExpires,
+            'token_health' => $tokenHealth,
+            'days_until_expiry' => $daysUntilExpiry,
             'last_token_checked_at' => optional($account->last_token_checked_at)?->toISOString(),
             'last_sync_started_at' => optional($account->last_sync_started_at)?->toISOString(),
             'last_sync_completed_at' => optional($account->last_sync_completed_at)?->toISOString(),
@@ -1333,7 +1532,7 @@ class SocialMediaController extends Controller
             'post_targets_count' => $account->post_targets_count,
             'connection_setup' => [
                 'platform_label' => $this->platformLabel($account->platform),
-                'credentials' => SocialConnectorRegistry::sanitizeCredentials($account->platform, $account->credentials ?? []),
+                'credentials' => SocialConnectorRegistry::sanitizeCredentials($account->platform, $creds),
                 'required_credentials' => SocialConnectorRegistry::requiredCredentialKeys($account->platform),
                 'callback_urls' => $callbackUrls,
                 'webhook_verify_token' => $account->webhook_verify_token,
@@ -1378,7 +1577,8 @@ class SocialMediaController extends Controller
         }
 
         if ($account->platform === 'facebook') {
-            return filled($creds['page_access_token'] ?? null)
+            return filled($creds['system_user_token'] ?? null)
+                || filled($creds['page_access_token'] ?? null)
                 || filled($creds['user_access_token'] ?? null);
         }
 
@@ -1397,20 +1597,28 @@ class SocialMediaController extends Controller
                 if (! filled($creds['app_id'] ?? '') || ! filled($creds['app_secret'] ?? '')) {
                     return;
                 }
-                if (! filled($creds['user_access_token'] ?? '') && ! filled($creds['page_access_token'] ?? '')) {
+                $hasToken = filled($creds['system_user_token'] ?? '')
+                    || filled($creds['user_access_token'] ?? '')
+                    || filled($creds['page_access_token'] ?? '');
+                if (! $hasToken) {
                     return;
                 }
 
                 $connector  = new FacebookConnector($creds);
                 $inspection = $connector->inspectToken();
+                $isValid    = (bool) ($inspection['is_valid'] ?? false);
+                $tokenType  = strtolower($inspection['type'] ?? 'unknown');
 
                 $account->update([
-                    'auth_status'           => ($inspection['is_valid'] ?? false) ? 'connected' : 'expired',
-                    'status'                => ($inspection['is_valid'] ?? false) ? 'active' : 'attention',
-                    'is_active'             => (bool) ($inspection['is_valid'] ?? false),
-                    'token_expires_at'      => $inspection['expires_at'] ?? null,
+                    'auth_status'           => $isValid ? 'connected' : 'expired',
+                    'status'                => $isValid ? 'active' : 'attention',
+                    'is_active'             => $isValid,
+                    'token_expires_at'      => ($inspection['never_expires'] ?? false) ? null : ($inspection['expires_at'] ?? null),
                     'last_token_checked_at' => now(),
-                    'sync_error'            => ($inspection['is_valid'] ?? false) ? null : ($inspection['message'] ?? null),
+                    'sync_error'            => $isValid ? null : ($inspection['message'] ?? null),
+                    'metadata'              => array_merge($account->metadata ?? [], [
+                        'token_type' => $tokenType,
+                    ]),
                 ]);
 
             } elseif ($account->platform === 'instagram') {
