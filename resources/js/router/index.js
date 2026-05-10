@@ -9,6 +9,16 @@ const routes = [
         meta: { guest: true },
     },
     {
+        path: '/privacy-policy',
+        name: 'privacy-policy',
+        component: () => import('@/pages/LegalPage.vue'),
+    },
+    {
+        path: '/terms-of-service',
+        name: 'terms-of-service',
+        component: () => import('@/pages/LegalPage.vue'),
+    },
+    {
         path: '/',
         component: () => import('@/layouts/AdminLayout.vue'),
         meta: { requiresAuth: true },

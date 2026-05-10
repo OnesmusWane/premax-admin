@@ -503,7 +503,28 @@ class FacebookConnector implements SocialPlatformPublisher
             throw new RuntimeException('Facebook conversations sync failed: ' . ($response->json('error.message') ?? $response->body()));
         }
 
-        return $response->json('data') ?? [];
+        $conversations = $response->json('data') ?? [];
+
+        // When the embedded messages field is empty (can happen with certain Meta
+        // permission sets), fetch messages for each conversation individually.
+        foreach ($conversations as &$conv) {
+            if (! empty($conv['messages']['data'] ?? [])) {
+                continue;
+            }
+
+            $msgResponse = Http::get(self::BASE_URL . "/{$conv['id']}/messages", [
+                'fields'       => 'id,message,from,created_time',
+                'limit'        => 25,
+                'access_token' => $token,
+            ]);
+
+            if ($msgResponse->successful()) {
+                $conv['messages'] = ['data' => $msgResponse->json('data') ?? []];
+            }
+        }
+        unset($conv);
+
+        return $conversations;
     }
 
     public function publishCommentReply(string $platformCommentId, string $message): string

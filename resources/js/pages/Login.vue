@@ -258,6 +258,18 @@
       <p class="text-center text-gray-700 text-xs mt-6">
         Premax Autocare & Diagnostic Services Admin Panel
       </p>
+
+      <p class="text-center text-xs mt-3 space-x-3">
+        <router-link to="/privacy-policy"
+          class="text-gray-600 hover:text-gray-400 transition-colors">
+          Privacy Policy
+        </router-link>
+        <span class="text-gray-700">·</span>
+        <router-link to="/terms-of-service"
+          class="text-gray-600 hover:text-gray-400 transition-colors">
+          Terms of Service
+        </router-link>
+      </p>
     </div>
   </div>
 </template>

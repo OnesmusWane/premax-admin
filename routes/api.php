@@ -2,6 +2,7 @@
 // routes/api.php
 
 use Illuminate\Support\Facades\Route;
+use App\Models\LegalPage;
 use App\Http\Controllers\Api\{
     AuthController,
     DashboardController,
@@ -28,6 +29,12 @@ use App\Http\Controllers\Api\{
 
 
 // ── Public ────────────────────────────────────────────────────────────────────
+Route::get('/legal/{type}', function (string $type) {
+    $page = LegalPage::findByType($type);
+    abort_if(! $page, 404, 'Legal page not found.');
+    return response()->json($page->only(['title', 'content', 'version', 'effective_date']));
+});
+
 Route::post('/admin/login', [AuthController::class, 'login']);
 Route::post('/admin/2fa/verify', [AuthController::class, 'verifyTwoFactor']);
 Route::post('/admin/2fa/recovery/request', [AuthController::class, 'requestTwoFactorRecovery']);

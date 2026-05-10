@@ -630,7 +630,7 @@ class InstagramConnector implements SocialPlatformPublisher
 
         $response = Http::get(self::BASE_URL . "/{$igUserId}/conversations", [
             'platform'     => 'instagram',
-            'fields'       => 'id,participants,messages{id,message,from,created_time},updated_time',
+            'fields'       => 'id,participants,messages{id,message,from,created_time},updated_time,unread_count',
             'limit'        => $limit,
             'access_token' => $token,
         ]);
@@ -639,7 +639,28 @@ class InstagramConnector implements SocialPlatformPublisher
             throw new RuntimeException('Instagram conversations sync failed: ' . ($response->json('error.message') ?? $response->body()));
         }
 
-        return $response->json('data') ?? [];
+        $conversations = $response->json('data') ?? [];
+
+        // When the embedded messages field is empty (can happen with certain Meta
+        // permission sets), fetch messages for each conversation individually.
+        foreach ($conversations as &$conv) {
+            if (! empty($conv['messages']['data'] ?? [])) {
+                continue;
+            }
+
+            $msgResponse = Http::get(self::BASE_URL . "/{$conv['id']}/messages", [
+                'fields'       => 'id,message,from,created_time',
+                'limit'        => 25,
+                'access_token' => $token,
+            ]);
+
+            if ($msgResponse->successful()) {
+                $conv['messages'] = ['data' => $msgResponse->json('data') ?? []];
+            }
+        }
+        unset($conv);
+
+        return $conversations;
     }
 
     // ──────────────────────────────────────────────────────────────────────────
