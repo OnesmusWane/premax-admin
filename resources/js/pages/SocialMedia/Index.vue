@@ -661,128 +661,27 @@
             </div>
           </section>
 
-          <section v-else-if="activeSection === 'youtube-videos'" class="space-y-6">
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <h2 class="text-3xl font-black tracking-tight text-slate-950">YouTube Videos</h2>
-                <p class="mt-1 text-sm text-slate-500">Manage your YouTube channel content and uploads.</p>
-              </div>
 
-              <button class="inline-flex items-center rounded-xl bg-[var(--color-custom-primary)] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#b71a1f]">
-                <PlusIcon class="mr-2 h-4 w-4" />
-                Upload Video
-              </button>
-            </div>
-
-            <div class="grid gap-5 xl:grid-cols-3">
-              <article
-                v-for="video in youtubeVideos"
-                :key="video.id"
-                class="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm"
-              >
-                <div class="relative h-[172px] overflow-hidden bg-slate-100">
-                  <img :src="video.thumbnail" :alt="video.title" class="h-full w-full object-cover" />
-                  <span class="absolute left-3 top-3 rounded-md px-2 py-1 text-[11px] font-bold text-white" :class="video.status === 'processing' ? 'bg-amber-500' : (video.status === 'draft' ? 'bg-slate-600' : 'bg-emerald-500')">
-                    {{ prettyStatus(video.status) }}
-                  </span>
-                  <span class="absolute bottom-3 right-3 rounded-md bg-black/80 px-2 py-1 text-[11px] font-bold text-white">
-                    {{ video.duration }}
-                  </span>
-                </div>
-
-                <div class="px-4 py-4">
-                  <div class="flex items-start justify-between gap-3">
-                    <div class="text-xl font-black leading-6 text-slate-950">{{ video.title }}</div>
-                    <EllipsisVerticalIcon class="h-5 w-5 text-slate-400" />
-                  </div>
-                  <div class="mt-2 text-sm text-slate-400">{{ video.subtitle }}</div>
-                </div>
-
-                <div class="flex items-center gap-5 border-t border-slate-100 px-4 py-3 text-sm text-slate-500">
-                  <span class="inline-flex items-center gap-1"><EyeIcon class="h-4 w-4" /> {{ video.views }}</span>
-                  <span class="inline-flex items-center gap-1"><HandThumbUpIcon class="h-4 w-4" /> {{ video.likes }}</span>
-                  <span class="inline-flex items-center gap-1"><ChatBubbleOvalLeftIcon class="h-4 w-4" /> {{ video.comments }}</span>
-                </div>
-              </article>
-            </div>
+          <!-- Comments Management -->
+          <section v-if="activeSection === 'comments'" class="space-y-6">
+            <CommentsManagement />
           </section>
 
-          <section v-else class="space-y-6">
-            <div class="flex items-center justify-between gap-4">
-              <div>
-                <h2 class="text-3xl font-black tracking-tight text-slate-950">Comments Management</h2>
-                <p class="mt-1 text-sm text-slate-500">Review and moderate comments on your YouTube videos.</p>
-              </div>
-
-              <div class="relative min-w-[260px]">
-                <MagnifyingGlassIcon class="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  v-model="youtubeCommentSearch"
-                  class="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm outline-none placeholder:text-slate-400 focus:border-[var(--color-custom-primary)]"
-                  placeholder="Search comments..."
-                />
-              </div>
-            </div>
-
-            <div class="rounded-2xl border border-slate-200 bg-white p-3">
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="filter in youtubeCommentFilters"
-                  :key="filter"
-                  @click="youtubeCommentStatus = filter"
-                  class="rounded-xl px-4 py-2 text-sm font-bold transition"
-                  :class="youtubeCommentStatus === filter ? 'bg-[rgba(211,30,36,0.08)] text-[var(--color-custom-primary)]' : 'text-slate-600 hover:bg-slate-100'"
-                >
-                  {{ prettyFilter(filter) }}
-                </button>
-              </div>
-            </div>
-
-            <div class="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-sm">
-              <table class="min-w-full divide-y divide-slate-200">
-                <thead class="bg-white">
-                  <tr class="text-left text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
-                    <th class="px-4 py-4">Comment</th>
-                    <th class="px-4 py-4">Video</th>
-                    <th class="px-4 py-4">Date</th>
-                    <th class="px-4 py-4">Status</th>
-                    <th class="px-4 py-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                  <tr v-for="comment in filteredYoutubeComments" :key="comment.id">
-                    <td class="px-4 py-4">
-                      <div class="flex items-start gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-slate-200 text-sm font-black text-slate-600">
-                          <img v-if="comment.avatar" :src="comment.avatar" :alt="comment.author" class="h-full w-full object-cover" />
-                          <span v-else>{{ initials(comment.author) }}</span>
-                        </div>
-                        <div>
-                          <div class="font-black text-slate-950">{{ comment.author }}</div>
-                          <div class="mt-1 text-sm text-slate-600">{{ comment.text }}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td class="px-4 py-4 text-sm text-slate-600">{{ comment.video }}</td>
-                    <td class="px-4 py-4 text-sm text-slate-500">{{ comment.date }}</td>
-                    <td class="px-4 py-4">
-                      <span class="rounded-md px-2 py-1 text-xs font-bold" :class="statusChipClass(comment.status)">
-                        {{ prettyStatus(comment.status) }}
-                      </span>
-                    </td>
-                    <td class="px-4 py-4">
-                      <div class="flex items-center justify-end gap-3 text-slate-400">
-                        <CheckCircleIcon v-if="comment.status === 'pending'" class="h-4 w-4 text-emerald-500" />
-                        <XCircleIcon v-if="comment.status === 'pending'" class="h-4 w-4 text-red-500" />
-                        <ChatBubbleOvalLeftIcon class="h-4 w-4 text-[var(--color-custom-primary)]" />
-                        <EllipsisVerticalIcon class="h-4 w-4" />
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+          <!-- Comment Templates -->
+          <section v-if="activeSection === 'templates'" class="space-y-6">
+            <CommentTemplates />
           </section>
+
+          <!-- Media Library -->
+          <section v-if="activeSection === 'media-library'" class="space-y-6">
+            <MediaLibraryView />
+          </section>
+
+          <!-- Analytics -->
+          <section v-if="activeSection === 'analytics'" class="space-y-6">
+            <Analytics />
+          </section>
+
         </main>
       </div>
     </div>
@@ -828,7 +727,19 @@
               </div>
 
               <div>
-                <label class="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Photos / Videos</label>
+                <div class="mb-2 flex items-center justify-between gap-2">
+                  <label class="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">
+                    {{ composerHasTikTok ? 'Video' : 'Photos / Videos' }}
+                  </label>
+                  <button
+                    v-if="!editingPostId"
+                    @click="openLibraryPicker"
+                    class="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:border-custom-primary hover:text-custom-primary"
+                  >
+                    <FilmIcon class="h-3.5 w-3.5" />
+                    From Library
+                  </button>
+                </div>
                 <div
                   v-if="!editingPostId"
                   class="relative rounded-2xl border-2 border-dashed px-6 py-8 text-center transition"
@@ -840,13 +751,16 @@
                   <input
                     ref="fileInputRef"
                     type="file"
-                    accept="image/jpeg,image/png,video/mp4,video/quicktime,video/avi,video/webm"
+                    :accept="composerFileAccept"
                     class="absolute inset-0 cursor-pointer opacity-0"
                     @change="onFileSelect($event)"
                   />
                   <PhotoIcon class="mx-auto h-8 w-8 text-slate-300" />
                   <div class="mt-3 text-sm font-bold text-slate-600">Drop a file here or click to browse</div>
-                  <div class="mt-1 text-xs text-slate-400">One image (JPG, PNG) or video per post. Instagram requires an image or video.</div>
+                  <div class="mt-1 text-xs text-slate-400">
+                    <template v-if="composerHasTikTok">TikTok only supports video — drop an MP4 or MOV file.</template>
+                    <template v-else>One image or video per post. Instagram requires a photo or video.</template>
+                  </div>
                   <div v-if="uploadingMedia" class="mt-3 text-xs font-bold text-[var(--color-custom-primary)]">Uploading…</div>
                 </div>
 
@@ -1241,6 +1155,93 @@
       </div>
     </Transition>
   </div>
+
+  <!-- ── Media Library picker modal ── -->
+  <Teleport to="body">
+    <div v-if="showLibraryPicker" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" @click="showLibraryPicker = false" />
+      <div class="relative flex w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl" style="max-height: 80vh">
+
+        <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <h3 class="text-base font-black text-slate-950">Media Library</h3>
+            <p v-if="composerHasTikTok" class="mt-0.5 text-xs text-amber-600 font-semibold">TikTok selected — only videos can be used.</p>
+          </div>
+          <button
+            @click="showLibraryPicker = false"
+            class="flex h-7 w-7 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >✕</button>
+        </div>
+
+        <div class="flex items-center gap-3 border-b border-slate-100 px-4 py-3">
+          <div class="relative flex-1">
+            <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              v-model="libraryPickerSearch"
+              @input="debouncedLibrarySearch"
+              class="w-full rounded-xl bg-slate-50 py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[rgba(211,30,36,0.12)]"
+              placeholder="Search media…"
+            />
+          </div>
+          <div class="flex gap-1">
+            <button
+              v-for="t in (composerHasTikTok ? [{ v:'video', l:'Videos' }] : [{ v:'all', l:'All' }, { v:'image', l:'Images' }, { v:'video', l:'Videos' }])"
+              :key="t.v"
+              @click="libraryPickerType = t.v; loadLibraryItems(1)"
+              class="rounded-xl px-3 py-2 text-xs font-bold transition"
+              :class="libraryPickerType === t.v ? 'bg-[var(--color-custom-primary)] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'"
+            >{{ t.l }}</button>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto p-4">
+          <div v-if="libraryPickerLoading" class="grid grid-cols-4 gap-3 sm:grid-cols-5 lg:grid-cols-6">
+            <div v-for="i in 12" :key="i" class="aspect-square animate-pulse rounded-xl bg-slate-100" />
+          </div>
+
+          <div
+            v-else-if="!libraryPickerItems.length"
+            class="flex flex-col items-center justify-center py-16 text-center"
+          >
+            <FilmIcon class="h-10 w-10 text-slate-300" />
+            <p class="mt-3 text-sm font-semibold text-slate-500">No media found</p>
+            <p class="mt-1 text-xs text-slate-400">Upload files in the Media Library section first.</p>
+          </div>
+
+          <div v-else class="grid grid-cols-4 gap-3 sm:grid-cols-5 lg:grid-cols-6">
+            <button
+              v-for="item in libraryPickerItems"
+              :key="item.id"
+              @click="pickLibraryItem(item)"
+              class="group relative aspect-square overflow-hidden rounded-xl border-2 border-transparent bg-slate-100 transition hover:border-[var(--color-custom-primary)]"
+            >
+              <video v-if="item.type === 'video'" :src="item.url" class="h-full w-full object-cover" muted />
+              <img v-else :src="item.url" :alt="item.name" class="h-full w-full object-cover" />
+              <div class="absolute inset-0 flex items-end bg-gradient-to-t from-black/50 to-transparent p-1.5 opacity-0 transition group-hover:opacity-100">
+                <span class="line-clamp-1 text-[9px] font-bold text-white">{{ item.name }}</span>
+              </div>
+              <div v-if="item.type === 'video'" class="absolute right-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[9px] font-bold text-white">VIDEO</div>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="libraryPickerMeta.last_page > 1" class="flex items-center justify-between border-t border-slate-100 px-4 py-3">
+          <button
+            @click="loadLibraryItems(libraryPickerMeta.current_page - 1)"
+            :disabled="libraryPickerMeta.current_page <= 1"
+            class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+          >← Prev</button>
+          <span class="text-sm text-slate-500">{{ libraryPickerMeta.current_page }} / {{ libraryPickerMeta.last_page }}</span>
+          <button
+            @click="loadLibraryItems(libraryPickerMeta.current_page + 1)"
+            :disabled="libraryPickerMeta.current_page >= libraryPickerMeta.last_page"
+            class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+          >Next →</button>
+        </div>
+
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -1249,13 +1250,17 @@ import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 import {
   BellIcon,
+  ChartBarIcon,
+  ChatBubbleOvalLeftEllipsisIcon,
   ChatBubbleOvalLeftIcon,
   CheckCircleIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  DocumentTextIcon,
   EllipsisVerticalIcon,
   EyeIcon,
   FaceSmileIcon,
+  FilmIcon,
   FunnelIcon,
   HandThumbUpIcon,
   HeartIcon,
@@ -1273,6 +1278,10 @@ import {
 import { useApi } from '@/composables/useApi'
 import { useToastStore } from '@/stores/toast'
 import { useAuthStore } from '@/stores/auth'
+import CommentTemplates from './CommentTemplates.vue'
+import CommentsManagement from './CommentsManagement.vue'
+import MediaLibraryView from './MediaLibrary.vue'
+import Analytics from './Analytics.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -1281,11 +1290,13 @@ const toast = useToastStore()
 const { get, post, patch, del } = useApi()
 
 const menuItems = [
-  { key: 'posts', label: 'Posts', icon: PhotoIcon },
-  { key: 'inbox', label: 'Inbox', icon: ChatBubbleOvalLeftIcon },
-  { key: 'accounts', label: 'Accounts', icon: UserGroupIcon },
-  //{ key: 'youtube-videos', label: 'YouTube Videos', icon: VideoCameraIcon },
-  //{ key: 'youtube-comments', label: 'YT Comments', icon: ChatBubbleOvalLeftIcon },
+  { key: 'posts',         label: 'Posts',        icon: PhotoIcon },
+  { key: 'inbox',         label: 'Inbox',        icon: ChatBubbleOvalLeftIcon },
+  { key: 'comments',      label: 'Comments',     icon: ChatBubbleOvalLeftEllipsisIcon },
+  { key: 'accounts',      label: 'Accounts',     icon: UserGroupIcon },
+  { key: 'templates',     label: 'Templates',    icon: DocumentTextIcon },
+  { key: 'media-library', label: 'Media Library',icon: FilmIcon },
+  { key: 'analytics',     label: 'Analytics',    icon: ChartBarIcon },
 ]
 
 const postFilters = ['all', 'published', 'scheduled', 'draft']
@@ -1299,7 +1310,6 @@ const groupByOptions = [
   { value: 'platform', label: 'Platform' },
   { value: 'none', label: 'None' },
 ]
-const youtubeCommentFilters = ['all', 'pending', 'approved', 'spam']
 
 const activeSection = ref('posts')
 const globalSearch = ref('')
@@ -1309,8 +1319,6 @@ const postPlatformFilter = ref('all')
 const postGroupBy = ref('platform')
 const showPostFilters = ref(false)
 const conversationSearch = ref('')
-const youtubeCommentSearch = ref('')
-const youtubeCommentStatus = ref('all')
 
 const loading = ref(false)
 const savingPost = ref(false)
@@ -1361,91 +1369,14 @@ const mediaFiles = ref([])
 const postForm = ref(defaultPostForm())
 const accountForm = ref(defaultAccountForm())
 
-const youtubeVideos = ref([
-  {
-    id: 1,
-    title: 'How to Change Your Oil in 10 Minutes | Premax Autocare',
-    thumbnail: 'https://images.unsplash.com/photo-1487754180451-c456f719a1fc?auto=format&fit=crop&w=1200&q=80',
-    status: 'published',
-    duration: '10:24',
-    subtitle: 'Oct 20, 2023',
-    views: '12.4K',
-    likes: '845',
-    comments: '124',
-  },
-  {
-    id: 2,
-    title: 'Top 5 Warning Signs Your Brakes Need Replacing',
-    thumbnail: 'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&w=1200&q=80',
-    status: 'published',
-    duration: '08:15',
-    subtitle: 'Oct 15, 2023',
-    views: '8.2K',
-    likes: '512',
-    comments: '89',
-  },
-  {
-    id: 3,
-    title: 'Understanding Your Dashboard Warning Lights',
-    thumbnail: 'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
-    status: 'processing',
-    duration: '12:45',
-    subtitle: 'Uploading...',
-    views: '-',
-    likes: '-',
-    comments: '-',
-  },
-  {
-    id: 4,
-    title: 'Winter Car Maintenance Tips - Prepare for the Cold',
-    thumbnail: 'https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=1200&q=80',
-    status: 'draft',
-    duration: '15:30',
-    subtitle: 'Last edited today',
-    views: '-',
-    likes: '-',
-    comments: '-',
-  },
-])
+const showLibraryPicker      = ref(false)
+const libraryPickerItems     = ref([])
+const libraryPickerMeta      = ref({ current_page: 1, last_page: 1 })
+const libraryPickerLoading   = ref(false)
+const libraryPickerSearch    = ref('')
+const libraryPickerType      = ref('all')
+let   librarySearchTimer     = null
 
-const youtubeComments = ref([
-  {
-    id: 1,
-    author: 'CarEnthusiast99',
-    text: 'Great tutorial! Very easy to follow. Can you do one on changing brake pads next?',
-    video: 'How to Change Your Oil in 10 Minutes',
-    date: '2 hours ago',
-    status: 'approved',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=300&q=80',
-  },
-  {
-    id: 2,
-    author: 'NewDriver2023',
-    text: 'I started hearing a squeaking noise yesterday. This video confirmed my suspicions. Booking an appointment now!',
-    video: 'Top 5 Warning Signs Your Brakes Need Replacing',
-    date: '5 hours ago',
-    status: 'pending',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
-  },
-  {
-    id: 3,
-    author: 'SpamBot5000',
-    text: 'CLICK HERE TO WIN A FREE CAR!!! www.totallynotascam.com',
-    video: 'How to Change Your Oil in 10 Minutes',
-    date: '1 day ago',
-    status: 'spam',
-    avatar: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=300&q=80',
-  },
-  {
-    id: 4,
-    author: 'SarahJenkins',
-    text: 'The check engine light section was super helpful. Turns out it was just a loose gas cap!',
-    video: 'Understanding Your Dashboard Warning Lights',
-    date: '2 days ago',
-    status: 'approved',
-    avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=300&q=80',
-  },
-])
 
 const authInitials = computed(() => {
   const name = auth.user?.name || 'SH'
@@ -1475,6 +1406,20 @@ const selectedPostCommentsTitle = computed(() => {
 const hasActivePostFilters = computed(() => (
   postPlatformFilter.value !== 'all' || postGroupBy.value !== 'platform'
 ))
+
+const composerSelectedPlatforms = computed(() =>
+  connectedAccounts.value
+    .filter((a) => postForm.value.account_ids.includes(a.id))
+    .map((a) => a.platform),
+)
+
+const composerHasTikTok = computed(() => composerSelectedPlatforms.value.includes('tiktok'))
+
+const composerFileAccept = computed(() =>
+  composerHasTikTok.value
+    ? 'video/mp4,video/quicktime,video/avi,video/webm'
+    : 'image/jpeg,image/png,video/mp4,video/quicktime,video/avi,video/webm',
+)
 
 const activePostFilterCount = computed(() => (
   Number(postPlatformFilter.value !== 'all') + Number(postGroupBy.value !== 'platform')
@@ -1614,15 +1559,6 @@ const composerPreviewPlatforms = computed(() => {
     : [{ key: 'facebook', name: 'Social preview' }]
 })
 
-const filteredYoutubeComments = computed(() => {
-  const term = `${globalSearch.value} ${youtubeCommentSearch.value}`.trim().toLowerCase()
-
-  return youtubeComments.value.filter((comment) => {
-    const statusMatch = youtubeCommentStatus.value === 'all' || comment.status === youtubeCommentStatus.value
-    if (!term) return statusMatch
-    return statusMatch && [comment.author, comment.text, comment.video].join(' ').toLowerCase().includes(term)
-  })
-})
 
 watch(
   () => route.query.section,
@@ -1909,10 +1845,16 @@ function validatePostForm() {
     if (!postForm.value.content?.trim()) return 'Caption is required.'
     if (postForm.value.account_ids.length === 0) return 'Select at least one platform to post to.'
 
-    const hasInstagram = connectedAccounts.value
-      .filter((a) => postForm.value.account_ids.includes(a.id))
-      .some((a) => a.platform === 'instagram')
+    const selectedAccounts = connectedAccounts.value.filter((a) => postForm.value.account_ids.includes(a.id))
+    const hasInstagram     = selectedAccounts.some((a) => a.platform === 'instagram')
+    const hasTikTok        = selectedAccounts.some((a) => a.platform === 'tiktok')
 
+    if (hasTikTok && mediaFiles.value.length === 0) {
+      return 'TikTok requires a video — please attach an MP4 or MOV file.'
+    }
+    if (hasTikTok && mediaFiles.value.length > 0 && !mediaFiles.value[0].isVideo) {
+      return 'TikTok only supports video posts — please replace the image with a video.'
+    }
     if (hasInstagram && mediaFiles.value.length === 0) {
       return 'Instagram requires a photo or video — please attach a file.'
     }
@@ -2364,6 +2306,47 @@ function releaseMediaPreviewUrls() {
       URL.revokeObjectURL(file.previewUrl)
     }
   }
+}
+
+// ─── Media Library picker ─────────────────────────────────────────────────────
+async function openLibraryPicker() {
+  libraryPickerSearch.value = ''
+  libraryPickerType.value   = composerHasTikTok.value ? 'video' : 'all'
+  showLibraryPicker.value   = true
+  await loadLibraryItems(1)
+}
+
+function debouncedLibrarySearch() {
+  clearTimeout(librarySearchTimer)
+  librarySearchTimer = setTimeout(() => loadLibraryItems(1), 250)
+}
+
+async function loadLibraryItems(page) {
+  libraryPickerLoading.value = true
+  try {
+    const params = { page, per_page: 24 }
+    if (libraryPickerSearch.value.trim()) params.search = libraryPickerSearch.value.trim()
+    if (libraryPickerType.value !== 'all') params.type  = libraryPickerType.value
+    const data = await get('/media-library', params)
+    libraryPickerItems.value = data.data || []
+    libraryPickerMeta.value  = { current_page: data.current_page, last_page: data.last_page }
+  } catch {
+    toast.error('Failed to load media library.')
+  } finally {
+    libraryPickerLoading.value = false
+  }
+}
+
+function pickLibraryItem(item) {
+  releaseMediaPreviewUrls()
+  mediaFiles.value = [{
+    url:        item.url,
+    name:       item.name,
+    isVideo:    item.type === 'video',
+    previewUrl: item.url,
+  }]
+  post(`/media-library/${item.id}/track-usage`).catch(() => {})
+  showLibraryPicker.value = false
 }
 
 function hydrateMediaFiles(urls) {

@@ -5,12 +5,15 @@ use Illuminate\Support\Facades\Route;
 use App\Models\LegalPage;
 use App\Http\Controllers\Api\{
     AuthController,
+    CommentTemplateController,
     DashboardController,
     CustomerController,
     VehicleController,
     JobCardController,
     InventoryController,
     InvoiceController,
+    MediaLibraryController,
+    PostAnalyticsController,
     ReportsController,
     SettingsController,
     ChecklistController,
@@ -210,9 +213,31 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::delete('/social-media/posts/{socialPost}', [SocialMediaController::class, 'destroyPost'])->middleware('permission:social_media.posts.manage');
     Route::post('/social-media/posts/{socialPost}/publish', [SocialMediaController::class, 'publishPost'])->middleware('permission:social_media.posts.manage');
     Route::post('/social-media/posts/{socialPost}/sync-interactions', [SocialMediaController::class, 'syncPostInteractions'])->middleware('permission:social_media.engagement.manage');
+    Route::get('/social-media/comments', [SocialMediaController::class, 'listComments'])->middleware('permission:social_media.engagement.manage');
     Route::patch('/social-media/comments/{socialComment}', [SocialMediaController::class, 'updateComment'])->middleware('permission:social_media.engagement.manage');
     Route::post('/social-media/comments/{socialComment}/reply', [SocialMediaController::class, 'replyToComment'])->middleware('permission:social_media.engagement.manage');
+    Route::post('/social-media/comments/{socialComment}/react', [SocialMediaController::class, 'reactToComment'])->middleware('permission:social_media.engagement.manage');
     Route::get('/social-media/conversations/{socialConversation}/messages', [SocialMediaController::class, 'conversationMessages'])->middleware('permission:social_media.inbox.manage');
     Route::post('/social-media/conversations/{socialConversation}/messages', [SocialMediaController::class, 'sendMessage'])->middleware('permission:social_media.inbox.manage');
 });
 Route::post('/admin/mpesa/callback', [MpesaController::class, 'callback']);
+
+// ── Comment Templates ─────────────────────────────────────────────────────────
+Route::middleware(['auth:sanctum'])->group(function () {
+    Route::get('/comment-templates',                              [CommentTemplateController::class, 'index']);
+    Route::post('/comment-templates',                             [CommentTemplateController::class, 'store']);
+    Route::put('/comment-templates/{commentTemplate}',            [CommentTemplateController::class, 'update']);
+    Route::delete('/comment-templates/{commentTemplate}',         [CommentTemplateController::class, 'destroy']);
+    Route::post('/comment-templates/{commentTemplate}/use',       [CommentTemplateController::class, 'use']);
+
+    // ── Media Library ─────────────────────────────────────────────────────────
+    Route::get('/media-library',                    [MediaLibraryController::class, 'index']);
+    Route::get('/media-library/{media}',            [MediaLibraryController::class, 'show']);
+    Route::delete('/media-library/{media}',         [MediaLibraryController::class, 'destroy']);
+    Route::put('/media-library/{media}/tags',        [MediaLibraryController::class, 'updateTags']);
+    Route::post('/media-library/{media}/track-usage',[MediaLibraryController::class, 'trackUsage']);
+
+    // ── Post Analytics ────────────────────────────────────────────────────────
+    Route::get('/analytics/best-time-to-post',  [PostAnalyticsController::class, 'bestTimeToPost']);
+    Route::get('/analytics/engagement-summary', [PostAnalyticsController::class, 'postEngagementSummary']);
+});

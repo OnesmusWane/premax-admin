@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\PublishSocialPostJob;
 use App\Models\ContactInformation;
+use App\Models\MediaLibrary;
 use App\Models\SocialAccount;
 use App\Models\SocialComment;
 use App\Models\SocialConversation;
@@ -930,15 +931,32 @@ class SocialMediaController extends Controller
             );
         }
 
-        $url = $response->json('secure_url');
+        $url      = $response->json('secure_url');
+        $publicId = $response->json('public_id');
+        $mimeType = $file->getMimeType() ?? '';
+        $type     = str_starts_with($mimeType, 'video/') ? 'video' : 'image';
 
         Log::info('Cloudinary upload success', ['url' => $url]);
 
+        $media = MediaLibrary::create([
+            'name'                 => $file->getClientOriginalName(),
+            'url'                  => $url,
+            'cloudinary_public_id' => $publicId,
+            'mime_type'            => $mimeType,
+            'type'                 => $type,
+            'size'                 => $response->json('bytes') ?? $file->getSize(),
+            'width'                => $response->json('width'),
+            'height'               => $response->json('height'),
+            'duration'             => $type === 'video' ? (int) ($response->json('duration') ?? 0) ?: null : null,
+            'created_by'           => $request->user()?->id,
+        ]);
+
         return response()->json([
-            'url'       => $url,
-            'path'      => $response->json('public_id'),
-            'name'      => $file->getClientOriginalName(),
-            'mime_type' => $file->getMimeType(),
+            'url'              => $url,
+            'path'             => $publicId,
+            'name'             => $file->getClientOriginalName(),
+            'mime_type'        => $mimeType,
+            'media_library_id' => $media->id,
         ], 201);
 
     } catch (\Throwable $e) {
@@ -1244,6 +1262,69 @@ class SocialMediaController extends Controller
             'post' => $this->serializePost($freshPost),
             'results' => $results,
         ]);
+    }
+
+    /**
+     * Paginated, filterable list of all comments across all posts.
+     */
+    public function listComments(Request $request)
+    {
+        $platform = $request->string('platform')->toString();
+        $status   = $request->string('status')->toString();
+        $search   = $request->string('search')->toString();
+        $perPage  = min((int) $request->input('per_page', 20), 50);
+
+        $query = SocialComment::query()
+            ->with(['account:id,name,platform,username', 'post:id,title,status', 'assignee:id,name'])
+            ->latest('received_at');
+
+        if (filled($platform) && $platform !== 'all') {
+            $query->whereHas('account', fn ($q) => $q->where('platform', $platform));
+        }
+
+        if (filled($status) && $status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        if (filled($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('comment_text', 'like', "%{$search}%")
+                  ->orWhere('author_name', 'like', "%{$search}%")
+                  ->orWhere('author_handle', 'like', "%{$search}%");
+            });
+        }
+
+        Log::info('Comments listed', [
+            'platform' => $platform ?: 'all',
+            'status'   => $status ?: 'all',
+            'search'   => $search ?: null,
+        ]);
+
+        return response()->json($query->paginate($perPage));
+    }
+
+    /**
+     * Save an admin reaction (like/dislike) on a comment.
+     */
+    public function reactToComment(Request $request, SocialComment $socialComment)
+    {
+        $data = $request->validate([
+            'reaction' => ['required', Rule::in(['like', 'dislike', 'none'])],
+        ]);
+
+        $metadata                    = $socialComment->metadata ?? [];
+        $metadata['admin_reaction']  = $data['reaction'] === 'none' ? null : $data['reaction'];
+
+        $socialComment->update(['metadata' => $metadata]);
+
+        Log::info('Comment reaction saved', [
+            'comment_id' => $socialComment->id,
+            'reaction'   => $data['reaction'],
+        ]);
+
+        return response()->json(
+            $socialComment->fresh()->load(['account:id,name,platform,username', 'post:id,title,status', 'assignee:id,name'])
+        );
     }
 
     public function postComments(Request $request, SocialPost $socialPost)

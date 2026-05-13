@@ -13,6 +13,7 @@ use Database\Seeders\LegalPagesSeeder;
 use Database\Seeders\ReviewsSeeder;
 use Database\Seeders\StaffMembersSeeder;
 use Database\Seeders\BookingSourcesSeeder;
+use Database\Seeders\CommentTemplateSeeder;
 
 class DatabaseSeeder extends Seeder
 {
@@ -35,6 +36,7 @@ class DatabaseSeeder extends Seeder
             StaffMembersSeeder::class,
             AdminUserSeeder::class,
             AccessControlSeeder::class,
+            CommentTemplateSeeder::class,
         ]);
     }
 }
