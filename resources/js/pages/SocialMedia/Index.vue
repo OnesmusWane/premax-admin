@@ -1125,13 +1125,57 @@
                   </div>
 
                   <div class="mt-4">
-                    <label class="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Reply</label>
-                    <textarea
-                      v-model="commentReplyDrafts[comment.id]"
-                      rows="3"
-                      class="input-base resize-none"
-                      placeholder="Write a helpful reply..."
-                    />
+                    <div class="mb-2 flex items-center justify-between gap-2">
+                      <label class="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Reply</label>
+                      <div class="flex items-center gap-2">
+                        <span class="text-[11px] text-slate-400">Type <kbd class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">/</kbd> for quick insert</span>
+                        <button
+                          @click="openPostCommentTemplateBrowser(comment)"
+                          class="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-bold text-slate-600 transition hover:border-custom-primary hover:text-custom-primary"
+                        >
+                          <DocumentTextIcon class="h-3.5 w-3.5" />
+                          Templates
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="relative">
+                      <textarea
+                        v-model="commentReplyDrafts[comment.id]"
+                        @input="onPostCommentReplyInput(comment)"
+                        @keydown.escape="closePostCommentPicker"
+                        @keydown.down.prevent="postCommentPickerTargetId === comment.id ? postCommentPickerIndex = Math.min(postCommentPickerIndex + 1, postCommentPickerTemplates.length - 1) : null"
+                        @keydown.up.prevent="postCommentPickerTargetId === comment.id ? postCommentPickerIndex = Math.max(postCommentPickerIndex - 1, 0) : null"
+                        @keydown.enter.prevent="postCommentPickerTargetId === comment.id && postCommentPickerTemplates.length ? insertPostCommentTemplate(postCommentPickerTemplates[postCommentPickerIndex], comment.id) : null"
+                        rows="3"
+                        class="input-base resize-none"
+                        placeholder="Write a helpful reply..."
+                      />
+
+                      <!-- Inline template picker -->
+                      <div
+                        v-if="postCommentPickerTargetId === comment.id && postCommentPickerTemplates.length"
+                        class="absolute bottom-[calc(100%+4px)] left-0 z-20 w-full rounded-2xl border border-slate-200 bg-white shadow-xl"
+                      >
+                        <div class="border-b border-slate-100 px-4 py-2 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-400">Templates</div>
+                        <div class="max-h-40 overflow-y-auto py-1">
+                          <button
+                            v-for="(tpl, i) in postCommentPickerTemplates"
+                            :key="tpl.id"
+                            @mousedown.prevent="insertPostCommentTemplate(tpl, comment.id)"
+                            class="flex w-full flex-col gap-0.5 px-4 py-2.5 text-left transition"
+                            :class="i === postCommentPickerIndex ? 'bg-[rgba(211,30,36,0.06)]' : 'hover:bg-slate-50'"
+                          >
+                            <div class="flex items-center gap-2">
+                              <span class="text-sm font-bold text-slate-900">{{ tpl.name }}</span>
+                              <span v-if="tpl.shortcut" class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">{{ tpl.shortcut }}</span>
+                            </div>
+                            <p class="line-clamp-1 text-xs text-slate-500">{{ tpl.body }}</p>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
                     <div class="mt-3 flex justify-end">
                       <button
                         @click="replyToComment(comment)"
@@ -1237,6 +1281,66 @@
             :disabled="libraryPickerMeta.current_page >= libraryPickerMeta.last_page"
             class="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
           >Next →</button>
+        </div>
+
+      </div>
+    </div>
+  </Teleport>
+
+  <!-- ── Post-comment template browser modal ── -->
+  <Teleport to="body">
+    <div v-if="showPostCommentTemplateBrowser" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div class="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" @click="showPostCommentTemplateBrowser = false" />
+      <div class="relative flex w-full max-w-md flex-col rounded-2xl bg-white shadow-2xl" style="max-height: 72vh">
+
+        <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <h3 class="text-base font-black text-slate-950">Comment Templates</h3>
+          <button
+            @click="showPostCommentTemplateBrowser = false"
+            class="flex h-7 w-7 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >✕</button>
+        </div>
+
+        <div class="border-b border-slate-100 px-4 py-3">
+          <div class="relative">
+            <MagnifyingGlassIcon class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              ref="postCommentTemplateInputRef"
+              v-model="postCommentTemplateBrowserSearch"
+              @input="debouncePostCommentBrowserSearch"
+              class="w-full rounded-xl bg-slate-50 py-2.5 pl-10 pr-4 text-sm outline-none placeholder:text-slate-400 focus:ring-2 focus:ring-[rgba(211,30,36,0.12)]"
+              placeholder="Search by name, shortcut, or content…"
+            />
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto py-1">
+          <div v-if="postCommentBrowserLoading" class="space-y-1.5 p-3">
+            <div v-for="i in 4" :key="i" class="h-14 animate-pulse rounded-xl bg-slate-100" />
+          </div>
+
+          <div
+            v-else-if="!postCommentBrowserTemplates.length"
+            class="flex flex-col items-center justify-center px-6 py-10 text-center"
+          >
+            <DocumentTextIcon class="h-8 w-8 text-slate-300" />
+            <p class="mt-2 text-sm font-semibold text-slate-500">No templates found</p>
+            <p class="mt-1 text-xs text-slate-400">Try a different search or add templates in the Templates section.</p>
+          </div>
+
+          <button
+            v-for="tpl in postCommentBrowserTemplates"
+            :key="tpl.id"
+            @click="pickPostCommentBrowserTemplate(tpl)"
+            class="flex w-full flex-col gap-0.5 px-4 py-3 text-left transition hover:bg-[rgba(211,30,36,0.04)]"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-bold text-slate-900">{{ tpl.name }}</span>
+              <span v-if="tpl.shortcut" class="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-600">{{ tpl.shortcut }}</span>
+              <span v-if="tpl.usage_count" class="ml-auto text-[10px] text-slate-400">Used {{ tpl.usage_count }}×</span>
+            </div>
+            <p class="line-clamp-2 text-xs leading-4 text-slate-500">{{ tpl.body }}</p>
+          </button>
         </div>
 
       </div>
@@ -1376,6 +1480,17 @@ const libraryPickerLoading   = ref(false)
 const libraryPickerSearch    = ref('')
 const libraryPickerType      = ref('all')
 let   librarySearchTimer     = null
+
+const postCommentPickerTargetId          = ref(null)
+const postCommentPickerTemplates         = ref([])
+const postCommentPickerIndex             = ref(0)
+const showPostCommentTemplateBrowser     = ref(false)
+const postCommentTemplateBrowserSearch   = ref('')
+const postCommentBrowserTemplates        = ref([])
+const postCommentBrowserLoading          = ref(false)
+const postCommentBrowserTargetId         = ref(null)
+const postCommentTemplateInputRef        = ref(null)
+let   postCommentBrowserSearchTimer      = null
 
 
 const authInitials = computed(() => {
@@ -2347,6 +2462,80 @@ function pickLibraryItem(item) {
   }]
   post(`/media-library/${item.id}/track-usage`).catch(() => {})
   showLibraryPicker.value = false
+}
+
+// ─── Post-comment template picker (inline / + browser modal) ─────────────────
+async function onPostCommentReplyInput(comment) {
+  const val   = commentReplyDrafts.value[comment.id] || ''
+  const slash = val.lastIndexOf('/')
+  if (slash === -1) { closePostCommentPicker(); return }
+
+  postCommentPickerTargetId.value = comment.id
+  postCommentPickerIndex.value    = 0
+
+  try {
+    const data = await get('/comment-templates', {
+      search:   val.slice(slash + 1),
+      platform: comment.account?.platform || selectedCommentsPlatform.value || 'all',
+    })
+    postCommentPickerTemplates.value = (data.templates || []).slice(0, 6)
+    if (!postCommentPickerTemplates.value.length) closePostCommentPicker()
+  } catch {
+    closePostCommentPicker()
+  }
+}
+
+function insertPostCommentTemplate(tpl, commentId) {
+  const val   = commentReplyDrafts.value[commentId] || ''
+  const slash = val.lastIndexOf('/')
+  commentReplyDrafts.value[commentId] = val.slice(0, slash) + tpl.body
+  closePostCommentPicker()
+  post(`/comment-templates/${tpl.id}/use`).catch(() => {})
+}
+
+function closePostCommentPicker() {
+  postCommentPickerTargetId.value  = null
+  postCommentPickerTemplates.value = []
+  postCommentPickerIndex.value     = 0
+}
+
+async function openPostCommentTemplateBrowser(comment) {
+  postCommentBrowserTargetId.value          = comment.id
+  postCommentTemplateBrowserSearch.value    = ''
+  showPostCommentTemplateBrowser.value      = true
+  await loadPostCommentBrowserTemplates('', comment.account?.platform || selectedCommentsPlatform.value || 'all')
+  await nextTick()
+  postCommentTemplateInputRef.value?.focus()
+}
+
+function debouncePostCommentBrowserSearch() {
+  clearTimeout(postCommentBrowserSearchTimer)
+  const platform = selectedCommentsPlatform.value || 'all'
+  postCommentBrowserSearchTimer = setTimeout(
+    () => loadPostCommentBrowserTemplates(postCommentTemplateBrowserSearch.value, platform),
+    250,
+  )
+}
+
+async function loadPostCommentBrowserTemplates(query, platform = 'all') {
+  postCommentBrowserLoading.value = true
+  try {
+    const data = await get('/comment-templates', { search: query || '', platform })
+    postCommentBrowserTemplates.value = data.templates || []
+  } catch {
+    postCommentBrowserTemplates.value = []
+  } finally {
+    postCommentBrowserLoading.value = false
+  }
+}
+
+function pickPostCommentBrowserTemplate(tpl) {
+  const id = postCommentBrowserTargetId.value
+  if (id !== null) {
+    commentReplyDrafts.value[id] = tpl.body
+    post(`/comment-templates/${tpl.id}/use`).catch(() => {})
+  }
+  showPostCommentTemplateBrowser.value = false
 }
 
 function hydrateMediaFiles(urls) {
