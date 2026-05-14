@@ -75,20 +75,47 @@
     <!-- Top Posts -->
     <section v-if="!loadingSummary && (summary.top_performing_posts || []).length">
       <h3 class="mb-4 text-base font-black text-slate-950">Top Performing Posts</h3>
-      <div class="rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100">
+      <div class="rounded-2xl border border-slate-200 bg-white divide-y divide-slate-100 overflow-hidden">
         <div
           v-for="(p, i) in summary.top_performing_posts"
           :key="p.post_id"
-          class="flex items-center gap-4 px-5 py-4"
+          class="flex items-start gap-4 px-5 py-4"
         >
-          <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-600">
+          <!-- Rank -->
+          <div class="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-600">
             {{ i + 1 }}
           </div>
-          <div class="flex-1 min-w-0">
-            <p class="truncate text-sm font-bold text-slate-900">{{ p.title }}</p>
-            <p class="text-xs text-slate-400">{{ formatDate(p.published_at) }}</p>
+
+          <!-- Media thumbnail -->
+          <div
+            v-if="p.media_url"
+            class="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100"
+          >
+            <video v-if="p.media_is_video" :src="p.media_url" class="h-full w-full object-cover" muted />
+            <img v-else :src="p.media_url" alt="post media" class="h-full w-full object-cover" />
+            <div v-if="p.media_is_video" class="absolute right-1 bottom-1 rounded bg-black/60 px-1 py-0.5 text-[8px] font-bold text-white leading-none">▶</div>
           </div>
-          <div class="hidden sm:flex gap-4 text-right">
+          <!-- Placeholder when no media -->
+          <div v-else class="h-14 w-14 shrink-0 rounded-xl border border-dashed border-slate-200 bg-slate-50 flex items-center justify-center">
+            <span class="text-[10px] text-slate-300 font-bold">No media</span>
+          </div>
+
+          <!-- Info -->
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <p class="truncate text-sm font-bold text-slate-900">{{ p.title }}</p>
+              <span
+                v-if="p.platform"
+                class="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                :class="platformPillClass(p.platform)"
+              >{{ platformLabel(p.platform) }}</span>
+            </div>
+            <p v-if="p.content" class="mt-1 line-clamp-2 text-xs leading-4 text-slate-500">{{ p.content }}</p>
+            <p class="mt-1 text-[11px] text-slate-400">{{ formatDate(p.published_at) }}</p>
+          </div>
+
+          <!-- Stats -->
+          <div class="hidden sm:flex shrink-0 gap-4 text-right">
             <div>
               <div class="text-xs text-slate-400">Likes</div>
               <div class="text-sm font-black text-slate-800">{{ fmtNum(p.likes) }}</div>
@@ -377,6 +404,18 @@ function fmtNum(n) {
 function formatDate(value) {
   if (!value) return '—'
   return new Date(value).toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+function platformLabel(platform) {
+  return { facebook: 'Facebook', instagram: 'Instagram', tiktok: 'TikTok' }[platform] ?? platform
+}
+
+function platformPillClass(platform) {
+  return {
+    facebook:  'bg-blue-50 text-blue-700 border border-blue-100',
+    instagram: 'bg-[rgba(211,30,36,0.08)] text-[var(--color-custom-primary)] border border-[rgba(211,30,36,0.12)]',
+    tiktok:    'bg-slate-900 text-white',
+  }[platform] ?? 'bg-slate-100 text-slate-600'
 }
 
 onMounted(loadAll)

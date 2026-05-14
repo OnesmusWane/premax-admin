@@ -172,6 +172,9 @@ class PostAnalyticsController extends Controller
             ->select([
                 'social_posts.id as post_id',
                 'social_posts.title',
+                'social_posts.content',
+                'social_posts.media',
+                'social_accounts.platform',
                 'social_post_targets.published_at',
                 'social_post_targets.likes_count',
                 'social_post_targets.comments_count',
@@ -207,15 +210,25 @@ class PostAnalyticsController extends Controller
             'avg_likes_per_post'    => $totalPosts > 0 ? round($totalLikes / $totalPosts, 1) : 0,
             'avg_comments_per_post' => $totalPosts > 0 ? round($totalComments / $totalPosts, 1) : 0,
             'avg_shares_per_post'   => $totalPosts > 0 ? round($totalShares / $totalPosts, 1) : 0,
-            'top_performing_posts'  => $topPosts->map(fn ($p) => [
-                'post_id'          => $p->post_id,
-                'title'            => $p->title ?: 'Untitled post',
-                'published_at'     => optional(Carbon::parse($p->published_at))?->toISOString(),
-                'likes'            => (int) ($p->likes_count ?? 0),
-                'comments'         => (int) ($p->comments_count ?? 0),
-                'shares'           => (int) ($p->shares_count ?? 0),
-                'total_engagement' => (int) $p->total_engagement,
-            ])->values()->all(),
+            'top_performing_posts'  => $topPosts->map(function ($p) {
+                $media     = is_string($p->media) ? json_decode($p->media, true) : ($p->media ?? []);
+                $firstMedia = is_array($media) ? ($media[0] ?? null) : null;
+                $isVideo    = $firstMedia && preg_match('/\.(mp4|mov|avi|webm|wmv|mkv)(\?|$)/i', $firstMedia);
+
+                return [
+                    'post_id'          => $p->post_id,
+                    'title'            => $p->title ?: 'Untitled post',
+                    'content'          => $p->content ? mb_substr($p->content, 0, 200) : null,
+                    'platform'         => $p->platform,
+                    'media_url'        => $firstMedia,
+                    'media_is_video'   => (bool) $isVideo,
+                    'published_at'     => optional(Carbon::parse($p->published_at))?->toISOString(),
+                    'likes'            => (int) ($p->likes_count ?? 0),
+                    'comments'         => (int) ($p->comments_count ?? 0),
+                    'shares'           => (int) ($p->shares_count ?? 0),
+                    'total_engagement' => (int) $p->total_engagement,
+                ];
+            })->values()->all(),
             'engagement_trend'      => $trend->map(fn ($t) => [
                 'date'       => $t->date,
                 'engagement' => (int) $t->engagement,
