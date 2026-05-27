@@ -80,27 +80,6 @@
           </div>
         </div>
 
-        <div v-else-if="step === 'reset'" class="space-y-4">
-          <div>
-            <h2 class="text-white font-bold text-sm">Choose a New Password</h2>
-            <p class="text-xs text-gray-400 mt-1">Set a new password for {{ resetEmail }}.</p>
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-400">New Password</label>
-            <input v-model="resetForm.password" type="password"
-              class="bg-gray-800 border border-white/10 text-white text-sm rounded-xl px-4 py-2.5 placeholder-gray-600 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all">
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-semibold text-gray-400">Confirm Password</label>
-            <input v-model="resetForm.password_confirmation" type="password"
-              class="bg-gray-800 border border-white/10 text-white text-sm rounded-xl px-4 py-2.5 placeholder-gray-600 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all">
-          </div>
-          <button @click="submitPasswordReset" :disabled="loading"
-            class="w-full bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold text-sm py-3 rounded-xl transition-all">
-            {{ loading ? 'Resetting…' : 'Reset Password' }}
-          </button>
-        </div>
-
         <div v-else-if="step === 'setup'" class="space-y-4">
           <div>
             <h2 class="text-white font-bold text-sm">Set Up Two-Factor Authentication</h2>
@@ -322,15 +301,13 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { EyeIcon, EyeSlashIcon, QrCodeIcon } from '@heroicons/vue/24/outline'
 import { useAuthStore } from '@/stores/auth'
 
 const auth   = useAuthStore()
 const router = useRouter()
-const route = useRoute()
 
 const form    = ref({ email: '', password: '' })
 const loading = ref(false)
@@ -345,8 +322,6 @@ const setupUrl = ref('')
 const setupQrUrl = ref('')
 const challengeUserEmail = ref('')
 const resetEmail = ref('')
-const resetToken = ref('')
-const resetForm = ref({ password:'', password_confirmation:'' })
 const recoveryEmail = ref('')
 const recoveryChallengeToken = ref('')
 const recoveryCode = ref('')
@@ -476,26 +451,6 @@ async function sendPasswordResetLink() {
   }
 }
 
-async function submitPasswordReset() {
-  loading.value = true
-  error.value = null
-  status.value = null
-  try {
-    await auth.resetPassword({
-      email: resetEmail.value,
-      token: resetToken.value,
-      password: resetForm.value.password,
-      password_confirmation: resetForm.value.password_confirmation,
-    })
-    resetLoginFlow()
-    status.value = 'Password reset successful. Sign in with your new password.'
-  } catch (e) {
-    error.value = e.response?.data?.message ?? 'Failed to reset password.'
-  } finally {
-    loading.value = false
-  }
-}
-
 async function requestRecoveryCode() {
   loading.value = true
   error.value = null
@@ -560,11 +515,4 @@ function nextRoute() {
   return priority.find(item => auth.hasPermission(item.permission))?.path ?? '/dashboard'
 }
 
-onMounted(() => {
-  if (route.query.reset_token && route.query.email) {
-    resetToken.value = String(route.query.reset_token)
-    resetEmail.value = String(route.query.email)
-    step.value = 'reset'
-  }
-})
 </script>

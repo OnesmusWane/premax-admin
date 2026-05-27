@@ -9,6 +9,12 @@ const routes = [
         meta: { guest: true },
     },
     {
+        path: '/reset-password',
+        name: 'reset-password',
+        component: () => import('@/pages/ResetPassword.vue'),
+        meta: { guest: true },
+    },
+    {
         path: '/privacy-policy',
         name: 'privacy-policy',
         component: () => import('@/pages/LegalPage.vue'),

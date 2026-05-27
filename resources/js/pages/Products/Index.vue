@@ -509,7 +509,7 @@ async function save() {
   try {
     const fd = new FormData()
     const fields = ['name','category','description','long_description','price','sale_price','stock_qty','reorder_level','sort_order']
-    fields.forEach(f => { if (form.value[f] !== null && form.value[f] !== '') fd.append(f, form.value[f]) })
+    fields.forEach(f => { const v = form.value[f]; if (v !== null && v !== '' && !Number.isNaN(v)) fd.append(f, v) })
     fd.append('is_featured', form.value.is_featured ? '1' : '0')
     fd.append('is_active',   form.value.is_active   ? '1' : '0')
     form.value.features.forEach((f, i) => fd.append(`features[${i}]`, f))

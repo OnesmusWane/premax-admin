@@ -162,7 +162,7 @@ class UserController extends Controller
         );
 
         $user->notify(new AdminPasswordResetNotification(
-            $this->websiteUrl('/login?email='.urlencode($user->email).'&reset_token='.urlencode($plainToken))
+            $this->websiteUrl('/reset-password?email='.urlencode($user->email).'&reset_token='.urlencode($plainToken))
         ));
 
         return response()->json(['message' => 'Password reset link sent to the user email.']);
@@ -197,7 +197,7 @@ class UserController extends Controller
 
     private function websiteUrl(string $path = ''): string
     {
-        $base = rtrim(env('WEBSITE_URL', config('app.url', 'http://localhost:8006')), '/');
+        $base = rtrim(config('app.url'), '/');
         return $base.'/'.ltrim($path, '/');
     }
 }
