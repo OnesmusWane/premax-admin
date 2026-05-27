@@ -70,6 +70,9 @@
               <div v-if="inv.booking_reference" class="text-[10px] text-red-500 font-semibold mt-0.5">
                 {{ inv.booking_reference }}
               </div>
+              <div v-else-if="inv.sale_type === 'product_order'" class="text-[10px] text-blue-500 font-semibold mt-0.5">
+                {{ inv.gateway_reference ?? 'Web Order' }}
+              </div>
               <div v-else class="text-[10px] text-gray-400 mt-0.5 capitalize">{{ inv.sale_type?.replace('_', ' ') }}</div>
             </td>
             <td class="px-4 py-3.5">
