@@ -1,0 +1,27 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('media_library', function (Blueprint $table) {
+            $table->boolean('is_published')->default(false)->after('tags');
+            $table->string('alt_text', 160)->nullable()->after('name');
+            $table->string('description', 1000)->nullable()->after('alt_text');
+            $table->foreignId('service_id')->nullable()->constrained('services')->nullOnDelete()->after('description');
+            $table->unsignedSmallInteger('sort_order')->default(0)->after('service_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('media_library', function (Blueprint $table) {
+            $table->dropForeign(['service_id']);
+            $table->dropColumn(['is_published', 'alt_text', 'description', 'service_id', 'sort_order']);
+        });
+    }
+};

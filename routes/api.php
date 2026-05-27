@@ -13,7 +13,9 @@ use App\Http\Controllers\Api\{
     InventoryController,
     InvoiceController,
     MediaLibraryController,
+    OrderController,
     PostAnalyticsController,
+    ProductController,
     ReportsController,
     SettingsController,
     ChecklistController,
@@ -28,6 +30,7 @@ use App\Http\Controllers\Api\{
     FeedbackController as AdminFeedbackController,
     GalleryController,
     SocialMediaController,
+    WorkCaseController,
 };
 
 
@@ -42,9 +45,12 @@ Route::post('/admin/login', [AuthController::class, 'login']);
 Route::post('/admin/2fa/verify', [AuthController::class, 'verifyTwoFactor']);
 Route::post('/admin/2fa/recovery/request', [AuthController::class, 'requestTwoFactorRecovery']);
 Route::post('/admin/2fa/recovery/verify', [AuthController::class, 'verifyTwoFactorRecovery']);
+Route::post('/admin/2fa/email-otp/request', [AuthController::class, 'requestEmailOtp']);
+Route::post('/admin/2fa/email-otp/verify', [AuthController::class, 'verifyEmailOtp']);
 Route::post('/admin/password/email', [AuthController::class, 'sendPasswordResetLink']);
 Route::post('/admin/password/reset', [AuthController::class, 'resetPassword']);
 Route::get('/gallery', [GalleryController::class, 'publicIndex']);
+Route::get('/media/public', [MediaLibraryController::class, 'publicIndex']);
 // Facebook OAuth callback — no auth required.
 // Register this exact URL in Meta Developer Portal → Facebook Login → Valid OAuth Redirect URIs:
 //   https://admin.premaxautoservice.co.ke/api/social-media/oauth/facebook/callback
@@ -112,6 +118,24 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/inventory/{inventoryItem}/stock-out', [InventoryController::class, 'stockOut'])->middleware('permission:inventory.manage');
     Route::get('/inventory/{inventoryItem}/movements',  [InventoryController::class, 'movements'])->middleware('permission:inventory.manage');
 
+    // Products (Boutique)
+    Route::get('/products/alerts',                [ProductController::class, 'alerts'])->middleware('permission:inventory.manage');
+    Route::get('/products',                       [ProductController::class, 'index'])->middleware('permission:inventory.manage');
+    Route::post('/products',                      [ProductController::class, 'store'])->middleware('permission:inventory.manage');
+    Route::post('/products/{product}',            [ProductController::class, 'update'])->middleware('permission:inventory.manage'); // FormData _method=PUT
+    Route::put('/products/{product}',             [ProductController::class, 'update'])->middleware('permission:inventory.manage');
+    Route::patch('/products/{product}',           [ProductController::class, 'update'])->middleware('permission:inventory.manage');
+    Route::delete('/products/{product}',          [ProductController::class, 'destroy'])->middleware('permission:inventory.manage');
+    Route::post('/products/{product}/stock-in',   [ProductController::class, 'stockIn'])->middleware('permission:inventory.manage');
+    Route::post('/products/{product}/stock-out',  [ProductController::class, 'stockOut'])->middleware('permission:inventory.manage');
+    Route::post('/products/{product}/sell',       [ProductController::class, 'sell'])->middleware('permission:inventory.manage');
+    Route::get('/products/{product}/movements',   [ProductController::class, 'movements'])->middleware('permission:inventory.manage');
+
+    // Shop Orders
+    Route::get('/orders',          [OrderController::class, 'index'])->middleware('permission:inventory.manage');
+    Route::get('/orders/{order}',  [OrderController::class, 'show'])->middleware('permission:inventory.manage');
+    Route::patch('/orders/{order}',[OrderController::class, 'update'])->middleware('permission:inventory.manage');
+
     // Invoices / Payments / POS
     Route::get('/invoices',           [InvoiceController::class, 'index'])->middleware('permission:payments.manage');
     Route::get('/invoices/today',     [InvoiceController::class, 'todaySummary'])->middleware('permission:payments.manage');
@@ -165,7 +189,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/mpesa/stk-push', [MpesaController::class, 'stkPush'])->middleware('permission:payments.manage');
     Route::get('/mpesa/status',      [MpesaController::class, 'checkStatus'])->middleware('permission:payments.manage');
 
-    Route::put('/profile', [ProfileController::class, 'update']);
+    Route::put('/profile', [ProfileController::class, 'update'])->middleware('permission:profile.manage');
 
     // Staff Members
     Route::get   ('/staff-members',          [StaffMemberController::class, 'index'])->middleware('permission:staff.manage');
@@ -219,25 +243,41 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->group(function () {
     Route::post('/social-media/comments/{socialComment}/react', [SocialMediaController::class, 'reactToComment'])->middleware('permission:social_media.engagement.manage');
     Route::get('/social-media/conversations/{socialConversation}/messages', [SocialMediaController::class, 'conversationMessages'])->middleware('permission:social_media.inbox.manage');
     Route::post('/social-media/conversations/{socialConversation}/messages', [SocialMediaController::class, 'sendMessage'])->middleware('permission:social_media.inbox.manage');
+
+    // Work Cases
+    Route::get('/work-cases', [WorkCaseController::class, 'index'])->middleware('permission:gallery.manage');
+    Route::post('/work-cases', [WorkCaseController::class, 'store'])->middleware('permission:gallery.manage');
+    Route::post('/work-cases/{workCase}', [WorkCaseController::class, 'update'])->middleware('permission:gallery.manage');
+    Route::put('/work-cases/{workCase}', [WorkCaseController::class, 'update'])->middleware('permission:gallery.manage');
+    Route::delete('/work-cases/{workCase}', [WorkCaseController::class, 'destroy'])->middleware('permission:gallery.manage');
+    Route::patch('/work-cases/{workCase}/toggle-featured', [WorkCaseController::class, 'toggleFeatured'])->middleware('permission:gallery.manage');
+    Route::patch('/work-cases/{workCase}/toggle-active', [WorkCaseController::class, 'toggleActive'])->middleware('permission:gallery.manage');
 });
 Route::post('/admin/mpesa/callback', [MpesaController::class, 'callback']);
 
 // ── Comment Templates ─────────────────────────────────────────────────────────
 Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/comment-templates',                              [CommentTemplateController::class, 'index']);
-    Route::post('/comment-templates',                             [CommentTemplateController::class, 'store']);
-    Route::put('/comment-templates/{commentTemplate}',            [CommentTemplateController::class, 'update']);
-    Route::delete('/comment-templates/{commentTemplate}',         [CommentTemplateController::class, 'destroy']);
-    Route::post('/comment-templates/{commentTemplate}/use',       [CommentTemplateController::class, 'use']);
+    Route::get('/comment-templates',                              [CommentTemplateController::class, 'index'])->middleware('permission:social_media.posts.manage');
+    Route::post('/comment-templates',                             [CommentTemplateController::class, 'store'])->middleware('permission:social_media.posts.manage');
+    Route::put('/comment-templates/{commentTemplate}',            [CommentTemplateController::class, 'update'])->middleware('permission:social_media.posts.manage');
+    Route::delete('/comment-templates/{commentTemplate}',         [CommentTemplateController::class, 'destroy'])->middleware('permission:social_media.posts.manage');
+    Route::post('/comment-templates/{commentTemplate}/use',       [CommentTemplateController::class, 'use'])->middleware('permission:social_media.posts.manage');
 
     // ── Media Library ─────────────────────────────────────────────────────────
-    Route::get('/media-library',                    [MediaLibraryController::class, 'index']);
-    Route::get('/media-library/{media}',            [MediaLibraryController::class, 'show']);
-    Route::delete('/media-library/{media}',         [MediaLibraryController::class, 'destroy']);
-    Route::put('/media-library/{media}/tags',        [MediaLibraryController::class, 'updateTags']);
-    Route::post('/media-library/{media}/track-usage',[MediaLibraryController::class, 'trackUsage']);
+    // /media is canonical; /media-library kept for backward compat
+    Route::get('/media',                           [MediaLibraryController::class, 'index'])->middleware('permission:gallery.manage');
+    Route::post('/media',                          [MediaLibraryController::class, 'store'])->middleware('permission:gallery.manage');
+    Route::get('/media/{media}',                   [MediaLibraryController::class, 'show'])->middleware('permission:gallery.manage');
+    Route::patch('/media/{media}',                 [MediaLibraryController::class, 'update'])->middleware('permission:gallery.manage');
+    Route::delete('/media/{media}',                [MediaLibraryController::class, 'destroy'])->middleware('permission:gallery.manage');
+    Route::post('/media/{media}/track-usage',      [MediaLibraryController::class, 'trackUsage'])->middleware('permission:gallery.manage');
+
+    Route::get('/media-library',                    [MediaLibraryController::class, 'index'])->middleware('permission:gallery.manage');
+    Route::get('/media-library/{media}',            [MediaLibraryController::class, 'show'])->middleware('permission:gallery.manage');
+    Route::delete('/media-library/{media}',         [MediaLibraryController::class, 'destroy'])->middleware('permission:gallery.manage');
+    Route::post('/media-library/{media}/track-usage',[MediaLibraryController::class, 'trackUsage'])->middleware('permission:gallery.manage');
 
     // ── Post Analytics ────────────────────────────────────────────────────────
-    Route::get('/analytics/best-time-to-post',  [PostAnalyticsController::class, 'bestTimeToPost']);
-    Route::get('/analytics/engagement-summary', [PostAnalyticsController::class, 'postEngagementSummary']);
+    Route::get('/analytics/best-time-to-post',  [PostAnalyticsController::class, 'bestTimeToPost'])->middleware('permission:social_media.view');
+    Route::get('/analytics/engagement-summary', [PostAnalyticsController::class, 'postEngagementSummary'])->middleware('permission:social_media.view');
 });

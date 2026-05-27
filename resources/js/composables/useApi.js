@@ -5,11 +5,11 @@ export function useApi() {
     const loading = ref(false)
     const error   = ref(null)
  
-    async function request(method, url, data = null, params = {}) {
+    async function request(method, url, data = null, params = {}, config = {}) {
         loading.value = true
         error.value   = null
         try {
-            const res = await axios({ method, url, data, params })
+            const res = await axios({ method, url, data, params, ...config })
             return res.data
         } catch (e) {
             error.value = e.response?.data?.message ?? 'An error occurred.'
@@ -18,12 +18,13 @@ export function useApi() {
             loading.value = false
         }
     }
- 
-    const get    = (url, params)       => request('get',    url, null, params)
-    const post   = (url, data)         => request('post',   url, data)
-    const put    = (url, data)         => request('put',    url, data)
-    const patch  = (url, data)         => request('patch',  url, data)
-    const del    = (url)               => request('delete', url)
- 
-    return { loading, error, get, post, put, patch, del }
+
+    const get     = (url, params)            => request('get',    url, null, params)
+    const post    = (url, data, config = {}) => request('post',   url, data, {}, config)
+    const put     = (url, data)              => request('put',    url, data)
+    const patch   = (url, data)              => request('patch',  url, data)
+    const del     = (url)                    => request('delete', url)
+    const destroy = del
+
+    return { loading, error, get, post, put, patch, del, destroy }
 }

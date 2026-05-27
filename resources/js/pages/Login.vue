@@ -171,7 +171,7 @@
 
         <div v-else-if="step === 'verify'" class="space-y-4">
           <div>
-            <h2 class="text-white font-bold text-sm">Enter Two-Factor Code</h2>
+            <h2 class="text-white font-bold text-sm">Two-Factor Authentication</h2>
             <p class="text-xs text-gray-400 mt-1">Open your authenticator app for {{ challengeUserEmail || form.email }} and enter the current 6-digit code.</p>
           </div>
 
@@ -193,9 +193,56 @@
               {{ loading ? 'Verifying…' : 'Verify Code' }}
             </button>
           </div>
-          <button @click="openTwoFactorRecovery"
-            class="text-xs text-gray-400 hover:text-white transition-colors">
-            Lost your authenticator?
+
+          <!-- Email OTP alternative -->
+          <div class="border-t border-white/10 pt-3 space-y-2">
+            <p class="text-[11px] text-gray-500 text-center">Can't access your authenticator app?</p>
+            <button @click="sendEmailOtp" :disabled="loading"
+              class="w-full border border-white/10 text-gray-300 text-xs font-semibold py-2.5 rounded-xl hover:bg-white/5 transition-all flex items-center justify-center gap-2">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+              </svg>
+              {{ loading ? 'Sending…' : 'Send code to my email' }}
+            </button>
+            <button @click="openTwoFactorRecovery"
+              class="w-full text-xs text-gray-500 hover:text-gray-300 transition-colors py-1">
+              Lost your authenticator? Recover access
+            </button>
+          </div>
+        </div>
+
+        <div v-else-if="step === 'email-otp'" class="space-y-4">
+          <div>
+            <h2 class="text-white font-bold text-sm">Check Your Email</h2>
+            <p class="text-xs text-gray-400 mt-1">
+              We sent a 6-digit sign-in code to
+              <span class="text-white font-semibold">{{ emailOtpHint || (challengeUserEmail || form.email) }}</span>.
+              It expires in 10 minutes.
+            </p>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <label class="text-xs font-semibold text-gray-400">Email Sign-In Code</label>
+            <input v-model="emailOtpCode" inputmode="numeric" maxlength="6" placeholder="123456" autofocus
+              class="bg-gray-800 border border-white/10 text-white text-sm rounded-xl px-4 py-2.5 placeholder-gray-600
+                     focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all">
+          </div>
+
+          <div class="flex gap-2">
+            <button @click="step = 'verify'"
+              class="flex-1 border border-white/10 text-gray-300 text-sm font-semibold py-3 rounded-xl hover:bg-white/5 transition-all">
+              Back
+            </button>
+            <button @click="completeEmailOtp" :disabled="loading"
+              class="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white font-bold text-sm py-3 rounded-xl transition-all flex items-center justify-center gap-2">
+              <span v-if="loading" class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              {{ loading ? 'Verifying…' : 'Sign In' }}
+            </button>
+          </div>
+
+          <button @click="sendEmailOtp" :disabled="loading"
+            class="w-full text-xs text-gray-500 hover:text-gray-300 transition-colors py-1">
+            Didn't receive it? Resend code
           </button>
         </div>
 
@@ -303,6 +350,8 @@ const resetForm = ref({ password:'', password_confirmation:'' })
 const recoveryEmail = ref('')
 const recoveryChallengeToken = ref('')
 const recoveryCode = ref('')
+const emailOtpCode = ref('')
+const emailOtpHint = ref('')
 
 async function handleLogin() {
   loading.value = true
@@ -363,6 +412,8 @@ function resetLoginFlow() {
   recoveryEmail.value = ''
   recoveryChallengeToken.value = ''
   recoveryCode.value = ''
+  emailOtpCode.value = ''
+  emailOtpHint.value = ''
   error.value = null
   status.value = null
 }
@@ -379,6 +430,36 @@ function openTwoFactorRecovery() {
   error.value = null
   status.value = null
   step.value = 'recovery-request'
+}
+
+async function sendEmailOtp() {
+  loading.value = true
+  error.value = null
+  status.value = null
+  try {
+    const data = await auth.requestEmailOtp(challengeToken.value)
+    emailOtpHint.value = data.email_hint ?? ''
+    emailOtpCode.value = ''
+    step.value = 'email-otp'
+  } catch (e) {
+    error.value = e.response?.data?.message ?? 'Failed to send sign-in code.'
+  } finally {
+    loading.value = false
+  }
+}
+
+async function completeEmailOtp() {
+  loading.value = true
+  error.value = null
+  status.value = null
+  try {
+    await auth.verifyEmailOtp(challengeToken.value, emailOtpCode.value)
+    router.push(nextRoute())
+  } catch (e) {
+    error.value = e.response?.data?.message ?? 'The sign-in code is invalid or has expired.'
+  } finally {
+    loading.value = false
+  }
 }
 
 async function sendPasswordResetLink() {

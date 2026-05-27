@@ -12,7 +12,7 @@
     <!-- Tabs -->
     <div class="px-4 md:px-6">
       <div class="flex items-center gap-0 bg-white rounded-2xl border border-gray-100 shadow-sm overflow-x-auto">
-        <button v-for="tab in tabs" :key="tab.key" @click="activeTab = tab.key"
+        <button v-for="tab in visibleTabs" :key="tab.key" @click="activeTab = tab.key"
           :class="['px-4 py-3 text-xs font-semibold border-b-2 transition-colors whitespace-nowrap',
             activeTab === tab.key
               ? 'border-red-600 text-red-600'
@@ -338,16 +338,23 @@
         <div class="divide-y divide-gray-50">
           <div v-for="svc in servicesInCategory(cat.id)" :key="svc.id"
             class="flex items-start justify-between px-5 py-3 hover:bg-gray-50/60 transition-colors">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="text-xs font-semibold text-gray-900">{{ svc.name }}</span>
-                <span v-if="svc.is_popular" class="text-[9px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Popular</span>
-                <span v-if="!svc.is_active" class="text-[9px] font-bold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Inactive</span>
+            <div class="flex items-start gap-3 flex-1 min-w-0">
+              <div v-if="svc.image" class="w-12 h-10 rounded-lg overflow-hidden border border-gray-100 shrink-0 bg-gray-50">
+                <img :src="imgSrc(svc.image)" :alt="svc.name" class="w-full h-full object-cover">
               </div>
-              <div v-if="svc.description" class="text-[10px] text-gray-400 mt-0.5 truncate max-w-sm">{{ svc.description }}</div>
-              <div class="flex items-center gap-3 mt-1 text-[10px] text-gray-500">
-                <span v-if="svc.price_from">KES {{ svc.price_from?.toLocaleString() }}{{ svc.price_to ? ' – ' + svc.price_to?.toLocaleString() : '+' }}</span>
-                <span v-if="svc.duration_minutes">⏱ {{ formatDuration(svc.duration_minutes) }}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs font-semibold text-gray-900">{{ svc.name }}</span>
+                  <span v-if="svc.is_popular" class="text-[9px] font-bold bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full">Popular</span>
+                  <span v-if="!svc.is_active" class="text-[9px] font-bold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Inactive</span>
+                </div>
+                <div v-if="svc.description" class="text-[10px] text-gray-400 mt-0.5 truncate max-w-sm">{{ svc.description }}</div>
+                <div class="flex items-center gap-3 mt-1 text-[10px] text-gray-500">
+                  <span v-if="svc.price_from">KES {{ svc.price_from?.toLocaleString() }}{{ svc.price_to ? ' – ' + svc.price_to?.toLocaleString() : '+' }}</span>
+                  <span v-if="svc.duration_minutes">⏱ {{ formatDuration(svc.duration_minutes) }}</span>
+                  <span v-if="svc.features?.length" class="text-gray-400">{{ svc.features.length }} feature{{ svc.features.length !== 1 ? 's' : '' }}</span>
+                  <span v-if="svc.process?.length" class="text-gray-400">{{ svc.process.length }}-step process</span>
+                </div>
               </div>
             </div>
             <div class="flex items-center gap-2 ml-4 shrink-0">
@@ -664,15 +671,21 @@
          MODAL: ADD / EDIT SERVICE
     ══════════════════════════════════════════════════ -->
     <Modal v-model="showServiceForm" :title="editingService ? 'Edit Service' : 'Add Service'" size="lg">
-      <form class="space-y-4">
+      <form class="space-y-5">
+
+        <!-- Basic Info -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="flex flex-col gap-1.5 sm:col-span-2">
             <label class="text-xs font-semibold text-gray-600">Service Name <span class="text-red-500">*</span></label>
             <input v-model="serviceForm.name" required class="input-base" placeholder="e.g. Engine Oil & Filter Change">
           </div>
           <div class="flex flex-col gap-1.5 sm:col-span-2">
-            <label class="text-xs font-semibold text-gray-600">Description</label>
-            <textarea v-model="serviceForm.description" rows="2" class="input-base resize-none" placeholder="Brief description shown to customers…" />
+            <label class="text-xs font-semibold text-gray-600">Short Description</label>
+            <textarea v-model="serviceForm.description" rows="2" class="input-base resize-none" placeholder="Brief description shown on service cards…" />
+          </div>
+          <div class="flex flex-col gap-1.5 sm:col-span-2">
+            <label class="text-xs font-semibold text-gray-600">Full Description <span class="text-gray-400 font-normal">(shown on service detail page)</span></label>
+            <textarea v-model="serviceForm.long_description" rows="4" class="input-base resize-none" placeholder="Detailed description of the service…" />
           </div>
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-semibold text-gray-600">Category <span class="text-red-500">*</span></label>
@@ -712,6 +725,66 @@
             <label class="text-xs font-semibold text-gray-600">Mark as Popular</label>
           </div>
         </div>
+
+        <!-- Service Image -->
+        <div class="border-t border-gray-100 pt-4 space-y-2">
+          <label class="text-xs font-semibold text-gray-600">Service Image <span class="text-gray-400 font-normal">(used as hero on detail page)</span></label>
+          <div class="flex items-start gap-3">
+            <div v-if="serviceImagePreview || serviceForm.image"
+              class="w-24 h-16 rounded-xl overflow-hidden border border-gray-200 shrink-0 bg-gray-50">
+              <img :src="serviceImagePreview || imgSrc(serviceForm.image)" class="w-full h-full object-cover">
+            </div>
+            <div class="flex flex-col gap-1.5 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <input type="file" accept="image/jpeg,image/png,image/webp,image/avif"
+                  class="text-xs text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-red-50 file:text-red-600 hover:file:bg-red-100"
+                  @change="onServiceImageChange">
+                <button type="button" @click="servicePickerOpen = true"
+                  class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-blue-200 text-blue-600 hover:bg-blue-50 transition shrink-0">Library</button>
+              </div>
+              <p class="text-[10px] text-gray-400">JPG, PNG, WebP or AVIF · max 4 MB</p>
+              <button v-if="serviceForm.image || serviceImagePreview" type="button"
+                @click="serviceForm.image = null; serviceImagePreview = null; serviceImageFile = null; servicePickedImageUrl = null"
+                class="text-[10px] text-red-500 hover:underline self-start">Remove image</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Features -->
+        <div class="border-t border-gray-100 pt-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-semibold text-gray-600">Key Features <span class="text-gray-400 font-normal">(bullet points on detail page)</span></label>
+            <button type="button" @click="serviceForm.features.push('')"
+              class="text-[10px] font-bold text-red-600 hover:underline">+ Add Feature</button>
+          </div>
+          <div v-for="(feat, i) in serviceForm.features" :key="i" class="flex items-center gap-2">
+            <input v-model="serviceForm.features[i]" class="input-base flex-1 text-xs" :placeholder="`Feature ${i + 1}…`">
+            <button type="button" @click="serviceForm.features.splice(i, 1)"
+              class="text-gray-300 hover:text-red-500 text-base leading-none shrink-0">✕</button>
+          </div>
+          <p v-if="!serviceForm.features.length" class="text-[10px] text-gray-400 italic">No features added yet.</p>
+        </div>
+
+        <!-- Process Steps -->
+        <div class="border-t border-gray-100 pt-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="text-xs font-semibold text-gray-600">Service Process <span class="text-gray-400 font-normal">(step-by-step on detail page)</span></label>
+            <button type="button" @click="serviceForm.process.push({ title: '', detail: '' })"
+              class="text-[10px] font-bold text-red-600 hover:underline">+ Add Step</button>
+          </div>
+          <div v-for="(step, i) in serviceForm.process" :key="i"
+            class="border border-gray-100 rounded-xl p-3 space-y-2 bg-gray-50/50">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Step {{ i + 1 }}</span>
+              <button type="button" @click="serviceForm.process.splice(i, 1)"
+                class="text-[10px] text-red-400 hover:text-red-600">Remove</button>
+            </div>
+            <input v-model="step.title" class="input-base text-xs" placeholder="Step title e.g. Vehicle Inspection">
+            <textarea v-model="step.detail" rows="2" class="input-base text-xs resize-none" placeholder="What happens in this step…" />
+          </div>
+          <p v-if="!serviceForm.process.length" class="text-[10px] text-gray-400 italic">No process steps added yet.</p>
+        </div>
+
         <div v-if="serviceFormError" class="text-xs text-red-600 bg-red-50 rounded-xl px-3 py-2">{{ serviceFormError }}</div>
       </form>
       <template #footer>
@@ -907,6 +980,9 @@
       </template>
     </Modal>
 
+    <MediaPicker :open="servicePickerOpen" :multiple="false"
+      @close="servicePickerOpen = false" @select="onServicePickerSelect" />
+
   </div>
 </template>
 
@@ -918,23 +994,28 @@ import { useAuthStore }  from '@/stores/auth'
 import { useToastStore } from '@/stores/toast'
 import PageHeader        from '@/components/PageHeader.vue'
 import Modal             from '@/components/Modal.vue'
+import MediaPicker       from '@/components/MediaPicker.vue'
 
 const { get, post, put, patch, destroy } = useApi()
 const auth  = useAuthStore()
 const toast = useToastStore()
 
+const websiteBase = (import.meta.env.VITE_WEBSITE_URL ?? 'http://localhost:8006').replace(/\/$/, '')
+const imgSrc = url => url?.startsWith('http') ? url : url ? websiteBase + '/' + url : ''
+
 const tabs = [
-  { key: 'profile',  label: 'My Profile' },
-  { key: 'users',    label: 'Users' },
-  { key: 'contact',  label: 'Contact Info' },
-  { key: 'social',   label: 'Social Media' },
-  { key: 'hours',    label: 'Business Hours' },
-  { key: 'services', label: 'Services' },
-  { key: 'staff',    label: 'Staff Members' },
-  { key: 'reviews',  label: 'Reviews' },
-  { key: 'system',   label: 'System' },
+  { key: 'profile',  label: 'My Profile',      permission: 'profile.manage' },
+  { key: 'users',    label: 'Users',            permission: 'users.manage' },
+  { key: 'contact',  label: 'Contact Info',     permission: 'settings.manage' },
+  { key: 'social',   label: 'Social Media',     permission: 'settings.manage' },
+  { key: 'hours',    label: 'Business Hours',   permission: 'settings.manage' },
+  { key: 'services', label: 'Services',         permission: 'services.manage' },
+  { key: 'staff',    label: 'Staff Members',    permission: 'staff.manage' },
+  { key: 'reviews',  label: 'Reviews',          permission: 'reviews.manage' },
+  { key: 'system',   label: 'System',           permission: 'settings.manage' },
 ]
-const activeTab = ref('profile')
+const visibleTabs = computed(() => tabs.filter(t => auth.hasPermission(t.permission)))
+const activeTab = ref(visibleTabs.value[0]?.key ?? 'profile')
 
 // ── My Profile ─────────────────────────────────────────────────────────────────
 const profileForm    = ref({ name:'', email:'', current_password:'', new_password:'', new_password_confirmation:'' })
@@ -1119,8 +1200,27 @@ const showServiceForm   = ref(false); const showCategoryForm  = ref(false)
 const savingService     = ref(false); const savingCategory    = ref(false)
 const editingService    = ref(null);  const editingCategory   = ref(null)
 const serviceFormError  = ref(null);  const categoryFormError = ref(null)
-const serviceForm  = ref({name:'',description:'',service_category_id:'',price_from:null,price_to:null,duration_minutes:null,requires_deposit:false,deposit_percent:null,is_popular:false,is_active:true})
+const serviceImageFile    = ref(null)
+const serviceImagePreview = ref(null)
+const servicePickedImageUrl = ref(null)
+const servicePickerOpen  = ref(false)
+const serviceForm  = ref({name:'',description:'',long_description:'',service_category_id:'',price_from:null,price_to:null,duration_minutes:null,requires_deposit:false,deposit_percent:null,is_popular:false,is_active:true,image:null,features:[],process:[]})
 const categoryForm = ref({name:'',description:'',color:'#DC2626'})
+
+function onServiceImageChange(e) {
+  const file = e.target.files?.[0]
+  if (!file) return
+  serviceImageFile.value = file
+  serviceImagePreview.value = URL.createObjectURL(file)
+  servicePickedImageUrl.value = null
+}
+
+function onServicePickerSelect(url) {
+  servicePickedImageUrl.value = Array.isArray(url) ? url[0] : url
+  serviceImagePreview.value   = servicePickedImageUrl.value
+  serviceImageFile.value      = null
+  servicePickerOpen.value     = false
+}
 const servicesInCategory = id => allServices.value.filter(s => s.service_category_id === id)
 const formatDuration     = m => m >= 60 ? `${Math.floor(m/60)}h${m%60?' '+m%60+'m':''}` : `${m}m`
 
@@ -1325,16 +1425,52 @@ async function saveAll() {
 }
 
 // ── Service CRUD ───────────────────────────────────────────────────────────────
-function openAddService(cat) { editingService.value=null; serviceForm.value={name:'',description:'',service_category_id:cat?.id??'',price_from:null,price_to:null,duration_minutes:null,requires_deposit:false,deposit_percent:null,is_popular:false,is_active:true}; serviceFormError.value=null; showServiceForm.value=true }
-function openEditService(svc) { editingService.value=svc; serviceForm.value={name:svc.name,description:svc.description??'',service_category_id:svc.service_category_id,price_from:svc.price_from,price_to:svc.price_to,duration_minutes:svc.duration_minutes,requires_deposit:svc.requires_deposit,deposit_percent:svc.deposit_percent,is_popular:svc.is_popular,is_active:svc.is_active}; serviceFormError.value=null; showServiceForm.value=true }
+function openAddService(cat) {
+  editingService.value = null
+  serviceImageFile.value = null; serviceImagePreview.value = null; servicePickedImageUrl.value = null
+  serviceForm.value = { name:'', description:'', long_description:'', service_category_id:cat?.id??'', price_from:null, price_to:null, duration_minutes:null, requires_deposit:false, deposit_percent:null, is_popular:false, is_active:true, image:null, features:[], process:[] }
+  serviceFormError.value = null; showServiceForm.value = true
+}
+function openEditService(svc) {
+  editingService.value = svc
+  serviceImageFile.value = null; serviceImagePreview.value = null; servicePickedImageUrl.value = null
+  serviceForm.value = { name:svc.name, description:svc.description??'', long_description:svc.long_description??'', service_category_id:svc.service_category_id, price_from:svc.price_from, price_to:svc.price_to, duration_minutes:svc.duration_minutes, requires_deposit:svc.requires_deposit, deposit_percent:svc.deposit_percent, is_popular:svc.is_popular, is_active:svc.is_active, image:svc.image??null, features: Array.isArray(svc.features) ? [...svc.features] : [], process: Array.isArray(svc.process) ? svc.process.map(s => ({...s})) : [] }
+  serviceFormError.value = null; showServiceForm.value = true
+}
 async function saveService() {
-  savingService.value=true; serviceFormError.value=null
+  savingService.value = true; serviceFormError.value = null
   try {
-    if (editingService.value) { const u=await put(`/admin/services/${editingService.value.id}`,serviceForm.value); const i=allServices.value.findIndex(s=>s.id===editingService.value.id); if(i>-1) allServices.value[i]=u; toast.success('Service updated.') }
-    else { const c=await post('/admin/services',serviceForm.value); allServices.value.push(c); toast.success('Service added.') }
-    showServiceForm.value=false
-  } catch(e) { serviceFormError.value=e.response?.data?.message??'Failed.' }
-  finally { savingService.value=false }
+    const buildPayload = () => {
+      const fd = new FormData()
+      const fields = ['name','description','long_description','service_category_id','price_from','price_to','duration_minutes','deposit_percent']
+      fields.forEach(f => { if (serviceForm.value[f] !== null && serviceForm.value[f] !== '') fd.append(f, serviceForm.value[f]) })
+      fd.append('requires_deposit', serviceForm.value.requires_deposit ? '1' : '0')
+      fd.append('is_popular',       serviceForm.value.is_popular       ? '1' : '0')
+      fd.append('is_active',        serviceForm.value.is_active        ? '1' : '0')
+      serviceForm.value.features.forEach((f, i) => fd.append(`features[${i}]`, f))
+      serviceForm.value.process.forEach((s, i) => {
+        fd.append(`process[${i}][title]`,  s.title  ?? '')
+        fd.append(`process[${i}][detail]`, s.detail ?? '')
+      })
+      if (serviceImageFile.value)         fd.append('image',     serviceImageFile.value)
+      else if (servicePickedImageUrl.value) fd.append('image_url', servicePickedImageUrl.value)
+      return fd
+    }
+    const config = { headers: { 'Content-Type': 'multipart/form-data' } }
+    if (editingService.value) {
+      const fd = buildPayload(); fd.append('_method', 'PUT')
+      const u = await post(`/admin/services/${editingService.value.id}`, fd, config)
+      const i = allServices.value.findIndex(s => s.id === editingService.value.id)
+      if (i > -1) allServices.value[i] = u
+      toast.success('Service updated.')
+    } else {
+      const c = await post('/admin/services', buildPayload(), config)
+      allServices.value.push(c)
+      toast.success('Service added.')
+    }
+    showServiceForm.value = false
+  } catch(e) { serviceFormError.value = e.response?.data?.message ?? 'Failed.' }
+  finally { savingService.value = false }
 }
 async function toggleServiceActive(svc) {
   try { const u=await patch(`/admin/services/${svc.id}`,{is_active:!svc.is_active}); svc.is_active=u.is_active; toast.success(svc.is_active?'Service activated.':'Service deactivated.') }

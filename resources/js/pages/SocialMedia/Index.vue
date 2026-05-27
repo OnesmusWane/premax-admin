@@ -14,7 +14,7 @@
 
         <nav class="space-y-1 px-3 py-5">
           <button
-            v-for="item in menuItems"
+            v-for="item in visibleMenuItems"
             :key="item.key"
             @click="setActiveSection(item.key)"
             class="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition"
@@ -670,11 +670,6 @@
           <!-- Comment Templates -->
           <section v-if="activeSection === 'templates'" class="space-y-6">
             <CommentTemplates />
-          </section>
-
-          <!-- Media Library -->
-          <section v-if="activeSection === 'media-library'" class="space-y-6">
-            <MediaLibraryView />
           </section>
 
           <!-- Analytics -->
@@ -1384,7 +1379,6 @@ import { useToastStore } from '@/stores/toast'
 import { useAuthStore } from '@/stores/auth'
 import CommentTemplates from './CommentTemplates.vue'
 import CommentsManagement from './CommentsManagement.vue'
-import MediaLibraryView from './MediaLibrary.vue'
 import Analytics from './Analytics.vue'
 
 const route = useRoute()
@@ -1394,14 +1388,14 @@ const toast = useToastStore()
 const { get, post, patch, del } = useApi()
 
 const menuItems = [
-  { key: 'posts',         label: 'Posts',        icon: PhotoIcon },
-  { key: 'inbox',         label: 'Inbox',        icon: ChatBubbleOvalLeftIcon },
-  { key: 'comments',      label: 'Comments',     icon: ChatBubbleOvalLeftEllipsisIcon },
-  { key: 'accounts',      label: 'Accounts',     icon: UserGroupIcon },
-  { key: 'templates',     label: 'Templates',    icon: DocumentTextIcon },
-  { key: 'media-library', label: 'Media Library',icon: FilmIcon },
-  { key: 'analytics',     label: 'Analytics',    icon: ChartBarIcon },
+  { key: 'posts',     label: 'Posts',     icon: PhotoIcon,                         permission: 'social_media.posts.manage' },
+  { key: 'inbox',     label: 'Inbox',     icon: ChatBubbleOvalLeftIcon,            permission: 'social_media.inbox.manage' },
+  { key: 'comments',  label: 'Comments',  icon: ChatBubbleOvalLeftEllipsisIcon,    permission: 'social_media.engagement.manage' },
+  { key: 'accounts',  label: 'Accounts',  icon: UserGroupIcon,                     permission: 'social_media.accounts.manage' },
+  { key: 'templates', label: 'Templates', icon: DocumentTextIcon,                  permission: 'social_media.posts.manage' },
+  { key: 'analytics', label: 'Analytics', icon: ChartBarIcon,                      permission: 'social_media.view' },
 ]
+const visibleMenuItems = computed(() => menuItems.filter(i => auth.hasPermission(i.permission)))
 
 const postFilters = ['all', 'published', 'scheduled', 'draft']
 const platformFilterOptions = [
@@ -1415,7 +1409,7 @@ const groupByOptions = [
   { value: 'none', label: 'None' },
 ]
 
-const activeSection = ref('posts')
+const activeSection = ref(visibleMenuItems.value[0]?.key ?? 'posts')
 const globalSearch = ref('')
 const postSearch = ref('')
 const postStatusFilter = ref('all')

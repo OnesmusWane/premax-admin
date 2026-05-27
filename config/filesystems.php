@@ -47,6 +47,14 @@ return [
             'report' => false,
         ],
 
+        'premax_website' => [
+            'driver'     => 'local',
+            'root'       => env('PREMAX_WEBSITE_PATH', base_path('../premax/public')),
+            'url'        => env('WEBSITE_URL', 'http://localhost:8006'),
+            'visibility' => 'public',
+            'throw'      => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

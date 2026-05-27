@@ -4,11 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Service;
+use App\Services\CloudinaryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
- 
+
 class ServiceController extends Controller
 {
+    public function __construct(private CloudinaryService $cloudinary) {}
+
     public function index(Request $request)
     {
         $services = Service::with('serviceCategory')
@@ -19,16 +22,24 @@ class ServiceController extends Controller
             ->when($request->per_page, fn($q) => $q->paginate($request->per_page),
                 fn($q) => $q->get()
             );
- 
+
         return response()->json($services);
     }
- 
+
     public function store(Request $request)
     {
         $request->validate([
             'name'                => 'required|string|max:200',
             'service_category_id' => 'required|exists:service_categories,id',
             'description'         => 'nullable|string|max:1000',
+            'long_description'    => 'nullable|string',
+            'features'            => 'nullable|array',
+            'features.*'          => 'string|max:300',
+            'process'             => 'nullable|array',
+            'process.*.title'     => 'required_with:process|string|max:200',
+            'process.*.detail'    => 'nullable|string|max:1000',
+            'image'               => 'nullable|image|mimes:jpg,jpeg,png,webp,avif|max:10240',
+            'image_url'           => 'nullable|url|max:2000',
             'price_from'          => 'nullable|integer|min:0',
             'price_to'            => 'nullable|integer|min:0',
             'duration_minutes'    => 'nullable|integer|min:1',
@@ -36,12 +47,15 @@ class ServiceController extends Controller
             'deposit_percent'     => 'nullable|integer|min:1|max:100',
             'is_popular'          => 'boolean',
         ]);
- 
-        $service = Service::create([
+
+        $data = [
             'name'                => $request->name,
             'slug'                => Str::slug($request->name),
             'service_category_id' => $request->service_category_id,
             'description'         => $request->description,
+            'long_description'    => $request->long_description,
+            'features'            => $request->features,
+            'process'             => $request->process,
             'price_from'          => $request->price_from,
             'price_to'            => $request->price_to,
             'price_is_estimate'   => true,
@@ -51,17 +65,33 @@ class ServiceController extends Controller
             'is_popular'          => $request->boolean('is_popular'),
             'is_active'           => true,
             'sort_order'          => Service::where('service_category_id', $request->service_category_id)->max('sort_order') + 1,
-        ]);
- 
+        ];
+
+        if ($request->hasFile('image')) {
+            $data['image'] = $this->cloudinary->upload($request->file('image'), 'premax/services');
+        } elseif ($request->filled('image_url')) {
+            $data['image'] = $request->input('image_url');
+        }
+
+        $service = Service::create($data);
+
         return response()->json($service->load('serviceCategory'), 201);
     }
- 
+
     public function update(Request $request, Service $service)
     {
         $request->validate([
             'name'                => 'sometimes|string|max:200',
             'service_category_id' => 'sometimes|exists:service_categories,id',
             'description'         => 'nullable|string|max:1000',
+            'long_description'    => 'nullable|string',
+            'features'            => 'nullable|array',
+            'features.*'          => 'string|max:300',
+            'process'             => 'nullable|array',
+            'process.*.title'     => 'required_with:process|string|max:200',
+            'process.*.detail'    => 'nullable|string|max:1000',
+            'image'               => 'nullable|image|mimes:jpg,jpeg,png,webp,avif|max:10240',
+            'image_url'           => 'nullable|url|max:2000',
             'price_from'          => 'nullable|integer|min:0',
             'price_to'            => 'nullable|integer|min:0',
             'duration_minutes'    => 'nullable|integer|min:1',
@@ -70,10 +100,10 @@ class ServiceController extends Controller
             'is_popular'          => 'boolean',
             'is_active'           => 'boolean',
         ]);
- 
+
         $data = $request->only([
-            'name', 'service_category_id', 'description',
-            'price_from', 'price_to', 'duration_minutes',
+            'name', 'service_category_id', 'description', 'long_description',
+            'features', 'process', 'price_from', 'price_to', 'duration_minutes',
             'is_popular', 'is_active', 'requires_deposit', 'deposit_percent',
         ]);
 
@@ -81,13 +111,25 @@ class ServiceController extends Controller
             $data['deposit_percent'] = null;
         }
 
+        if ($request->hasFile('image')) {
+            if ($service->image) {
+                $this->cloudinary->delete($service->image);
+            }
+            $data['image'] = $this->cloudinary->upload($request->file('image'), 'premax/services');
+        } elseif ($request->filled('image_url')) {
+            $data['image'] = $request->input('image_url');
+        }
+
         $service->update($data);
- 
+
         return response()->json($service->fresh('serviceCategory'));
     }
- 
+
     public function destroy(Service $service)
     {
+        if ($service->image) {
+            $this->cloudinary->delete($service->image);
+        }
         $service->delete();
         return response()->json(['message' => 'Service deleted.']);
     }

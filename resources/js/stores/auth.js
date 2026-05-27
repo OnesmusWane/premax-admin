@@ -53,6 +53,24 @@ export const useAuthStore = defineStore('auth', () => {
         return data
     }
 
+    async function requestEmailOtp(challengeToken) {
+        const { data } = await axios.post('/admin/2fa/email-otp/request', {
+            challenge_token: challengeToken,
+        })
+        return data
+    }
+
+    async function verifyEmailOtp(challengeToken, code) {
+        const { data } = await axios.post('/admin/2fa/email-otp/verify', {
+            challenge_token: challengeToken,
+            code,
+        })
+        if (data.token && data.user) {
+            applySession(data.token, data.user)
+        }
+        return data
+    }
+
     async function tryRestore() {
         if (!token.value) return false
         try {
@@ -103,6 +121,8 @@ export const useAuthStore = defineStore('auth', () => {
         resetPassword,
         requestTwoFactorRecovery,
         verifyTwoFactorRecovery,
+        requestEmailOtp,
+        verifyEmailOtp,
         logout,
         tryRestore,
         hasPermission,

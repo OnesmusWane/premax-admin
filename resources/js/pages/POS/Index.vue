@@ -301,6 +301,31 @@
                   </div>
                 </div>
               </div>
+              <div>
+                <div class="flex items-center justify-between mb-2">
+                  <h4 class="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Boutique Products</h4>
+                  <span class="text-[10px] text-gray-400">{{ filteredProducts.length }}</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+                  <button v-for="product in filteredProducts" :key="product.id" @click="addProductToCart(product)"
+                    :disabled="product.stock_qty <= 0"
+                    class="text-left bg-white border border-gray-200 hover:border-red-400 rounded-2xl p-3 transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <div class="text-[11px] font-bold text-gray-900">{{ product.name }}</div>
+                        <div class="text-[10px] text-gray-400 mt-0.5 capitalize">{{ product.category?.replace('_',' ') }}</div>
+                      </div>
+                      <span class="text-[10px] font-bold shrink-0" :class="product.stock_qty > 0 ? 'text-green-600' : 'text-red-500'">
+                        {{ product.stock_qty }} left
+                      </span>
+                    </div>
+                    <div class="text-[10px] text-gray-500 mt-2">KES {{ (product.sale_price ?? product.price)?.toLocaleString() }}</div>
+                  </button>
+                  <div v-if="!filteredProducts.length" class="col-span-full py-8 text-center text-gray-400 text-xs">
+                    No products found.
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -623,6 +648,7 @@ const statusColor = slug => statusColors[slug] ?? '#6B7280'
 const allServices    = ref([])
 const inventoryItems = ref([])
 const serviceSearch  = ref('')
+const allProducts   = ref([])
 const filteredServices = computed(() => {
   if (!serviceSearch.value) return allServices.value
   const q = serviceSearch.value.toLowerCase()
@@ -634,6 +660,13 @@ const filteredInventory = computed(() => {
   return inventoryItems.value.filter(i =>
     i.name.toLowerCase().includes(q) || i.sku?.toLowerCase().includes(q)
   )
+})
+const filteredProducts = computed(() => {
+  if (!serviceSearch.value) return allProducts.value.filter(p => p.is_active)
+  const q = serviceSearch.value.toLowerCase()
+  return allProducts.value.filter(p => p.is_active && (
+    p.name.toLowerCase().includes(q) || p.category?.toLowerCase().includes(q)
+  ))
 })
 const isInCart       = id => cart.value.some(i => i.id === id)
 const formatDuration = m => m >= 60 ? `${Math.floor(m/60)}h${m%60?' '+m%60+'m':''}` : `${m}m`
@@ -837,6 +870,21 @@ function addInventoryToCart(item) {
   mobileTab.value = 'cart'
   setTimeout(() => mobileTab.value = 'services', 600)
 }
+function addProductToCart(product) {
+  const existing = cart.value.find(i => i.product_id === product.id)
+  if (existing) { existing.quantity++; return }
+  cart.value.push({
+    id: `product-${product.id}`,
+    product_id: product.id,
+    line_type: 'product',
+    name: product.name,
+    unit_price: product.sale_price ?? product.price ?? 0,
+    quantity: 1,
+    stock_qty: product.stock_qty,
+  })
+  mobileTab.value = 'cart'
+  setTimeout(() => mobileTab.value = 'services', 600)
+}
 function removeFromCart(i) { cart.value.splice(i, 1) }
 function addCustomItem() { cart.value.push({ id: `custom-${Date.now()}`, line_type:'custom', name: 'Custom Item', unit_price: 0, quantity: 1 }) }
 
@@ -944,6 +992,7 @@ async function confirmCheckout(skipCode = false) {
         line_type:i.line_type,
         service_id:i.service_id,
         inventory_item_id:i.inventory_item_id,
+        product_id:i.product_id,
       })),
       payment_method:  pendingMethod.value,
       mpesa_reference: pendingMethod.value === 'mpesa' && !skipCode ? mpesaCode.value : undefined,
@@ -984,6 +1033,7 @@ function resetPOS() {
 onMounted(async () => {
   allServices.value = await get('/admin/services') ?? []
   inventoryItems.value = (await get('/admin/inventory', { per_page: 200 }))?.data ?? []
+  allProducts.value = (await get('/admin/products', { per_page: 200 }))?.data ?? []
   initChecklist()
   const q = route.query
   if (q.booking_id) {

@@ -2,7 +2,7 @@
   <div class="flex h-screen bg-gray-100 overflow-hidden">
 
     <!-- ── SIDEBAR (desktop) ── -->
-    <aside
+    <aside v-if="navItems.length"
       :class="['hidden md:flex flex-col bg-gray-900 text-white shrink-0 transition-all duration-300',
         sidebarCollapsed ? 'md:w-16' : 'md:w-[200px]']">
       <div class="flex items-center gap-3 px-4 py-4 border-b border-white/10 h-16 overflow-hidden">
@@ -108,15 +108,31 @@
       </header>
 
       <!-- Page content -->
-      <main class="flex-1 overflow-y-auto pb-16 md:pb-0">
+      <main v-if="navItems.length" class="flex-1 overflow-y-auto pb-16 md:pb-0">
         <RouterView />
       </main>
+
+      <!-- No permissions screen -->
+      <div v-else class="flex-1 flex items-center justify-center bg-gray-50">
+        <div class="text-center max-w-xs px-6">
+          <div class="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <LockClosedIcon class="w-8 h-8 text-red-500" />
+          </div>
+          <h2 class="text-base font-bold text-gray-900 mb-2">No permissions granted</h2>
+          <p class="text-sm text-gray-500 mb-6 leading-relaxed">Your account hasn't been granted access to any section. Contact your system administrator.</p>
+          <button @click="logout"
+            class="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-bold bg-red-600 text-white rounded-xl hover:bg-red-700 transition-colors">
+            <ArrowRightOnRectangleIcon class="w-4 h-4" />
+            Sign Out
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- ══════════════════════════════════════════════════
          MOBILE BOTTOM NAV
     ══════════════════════════════════════════════════ -->
-    <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 flex z-40 shadow-lg">
+    <nav v-if="navItems.length" class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-gray-100 flex z-40 shadow-lg">
       <RouterLink v-for="item in mobileNavItems" :key="item.to" :to="item.to"
         class="flex-1 flex flex-col items-center justify-center py-2 gap-0.5 text-[10px] font-semibold transition-colors"
         :class="isActive(item.to) ? 'text-red-600' : 'text-gray-400'">
@@ -250,7 +266,8 @@ import {
   XMarkIcon, Bars3Icon, ChevronDownIcon,
   UserCircleIcon, PencilSquareIcon, ArrowRightOnRectangleIcon,
   Squares2X2Icon, CalendarDaysIcon, UserGroupIcon,
-  TruckIcon, ShoppingCartIcon, CubeIcon, CreditCardIcon, CogIcon, ChatBubbleLeftIcon, PhotoIcon, MegaphoneIcon
+  TruckIcon, ShoppingCartIcon, CubeIcon, CreditCardIcon, CogIcon, ChatBubbleLeftIcon, PhotoIcon, MegaphoneIcon,
+  ShoppingBagIcon, ArchiveBoxIcon, LockClosedIcon
 } from '@heroicons/vue/24/outline'
 import NavItem           from '@/components/NavItem.vue'
 import QuickBookingModal from '@/components/QuickBookingModal.vue'
@@ -283,44 +300,56 @@ const userInitials = computed(() => {
 })
 
 const pageTitle = computed(() => {
-  const map = { dashboard:'Dashboard', bookings:'Bookings', customers:'Customers', vehicles:'Vehicles', pos:'Point of Sale', inventory:'Inventory', payments:'Payments', gallery:'Gallery', reports:'Reports', settings:'Settings', feedback:'Feedback', 'social-media':'Social Media Manager' }
+  const map = { dashboard:'Dashboard', bookings:'Bookings', customers:'Customers', vehicles:'Vehicles', pos:'Point of Sale', inventory:'Inventory', products:'Products', orders:'Shop Orders', payments:'Payments', gallery:'Media', reports:'Reports', settings:'Settings', feedback:'Feedback', 'social-media':'Social Media Manager' }
   return map[route.path.split('/')[1]] ?? 'Premax Admin'
 })
 
 // ── Nav items ──────────────────────────────────────────────────────────────────
+// permission can be a string OR an array — visible if user has ANY of the listed permissions
+const canSee = (permission) =>
+  Array.isArray(permission)
+    ? permission.some(p => auth.hasPermission(p))
+    : auth.hasPermission(permission)
+
+const SETTINGS_PERMS = ['settings.manage', 'services.manage', 'staff.manage', 'reviews.manage', 'users.manage']
+
 const allNavItems = [
-  { label:'Dashboard', to:'/dashboard', icon:Squares2X2Icon, permission:'dashboard.view' },
-  { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon, permission:'bookings.manage' },
-  { label:'Customers', to:'/customers', icon:UserGroupIcon, permission:'customers.manage' },
-  { label:'Vehicles',  to:'/vehicles',  icon:TruckIcon, permission:'vehicles.manage' },
-  { label:'POS',       to:'/pos',       icon:ShoppingCartIcon, permission:'pos.manage' },
-  { label:'Inventory', to:'/inventory', icon:CubeIcon, permission:'inventory.manage' },
-  { label:'Payments',  to:'/payments',  icon:CreditCardIcon, permission:'payments.manage' },
-  { label:'Gallery',   to:'/gallery',   icon:PhotoIcon, permission:'gallery.manage' },
-  { label:'Social Media',    to:'/social-media', icon:MegaphoneIcon, permission:'social_media.view' },
-  { label:'Feedback',  to:'/feedback',  icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
-  { label:'Settings',  to:'/settings',  icon:CogIcon, permission:'settings.manage' },
+  { label:'Dashboard',    to:'/dashboard',    icon:Squares2X2Icon,      permission:'dashboard.view' },
+  { label:'Bookings',     to:'/bookings',     icon:CalendarDaysIcon,    permission:'bookings.manage' },
+  { label:'Customers',    to:'/customers',    icon:UserGroupIcon,       permission:'customers.manage' },
+  { label:'Vehicles',     to:'/vehicles',     icon:TruckIcon,           permission:'vehicles.manage' },
+  { label:'POS',          to:'/pos',          icon:ShoppingCartIcon,    permission:'pos.manage' },
+  { label:'Inventory',    to:'/inventory',    icon:CubeIcon,            permission:'inventory.manage' },
+  { label:'Products',     to:'/products',     icon:ShoppingBagIcon,     permission:'inventory.manage' },
+  { label:'Orders',       to:'/orders',       icon:ArchiveBoxIcon,      permission:'inventory.manage' },
+  { label:'Payments',     to:'/payments',     icon:CreditCardIcon,      permission:'payments.manage' },
+  { label:'Media',        to:'/gallery',      icon:PhotoIcon,           permission:'gallery.manage' },
+  { label:'Social Media', to:'/social-media', icon:MegaphoneIcon,       permission:'social_media.view' },
+  { label:'Feedback',     to:'/feedback',     icon:ChatBubbleLeftIcon,  permission:'feedback.manage' },
+  { label:'Settings',     to:'/settings',     icon:CogIcon,             permission:SETTINGS_PERMS },
 ]
 
-const navItems = computed(() => allNavItems.filter(item => auth.hasPermission(item.permission)))
+const navItems = computed(() => allNavItems.filter(item => canSee(item.permission)))
 
 const mobileNavItems = computed(() => [
-  { label:'Dashboard', to:'/dashboard', icon:Squares2X2Icon, permission:'dashboard.view' },
-  { label:'Bookings',  to:'/bookings',  icon:CalendarDaysIcon, permission:'bookings.manage' },
-  { label:'Customers', to:'/customers', icon:UserGroupIcon, permission:'customers.manage' },
-  { label:'POS',       to:'/pos',       icon:ShoppingCartIcon, permission:'pos.manage' },
-  { label:'Social',    to:'/social-media', icon:MegaphoneIcon, permission:'social_media.view'},
-].filter(item => auth.hasPermission(item.permission)))
+  { label:'Dashboard', to:'/dashboard',    icon:Squares2X2Icon,   permission:'dashboard.view' },
+  { label:'Bookings',  to:'/bookings',     icon:CalendarDaysIcon, permission:'bookings.manage' },
+  { label:'Customers', to:'/customers',    icon:UserGroupIcon,    permission:'customers.manage' },
+  { label:'POS',       to:'/pos',          icon:ShoppingCartIcon, permission:'pos.manage' },
+  { label:'Social',    to:'/social-media', icon:MegaphoneIcon,    permission:'social_media.view' },
+].filter(item => canSee(item.permission)))
 
 const moreNavItems = computed(() => [
-  { label:'Vehicles',  to:'/vehicles',  icon:TruckIcon, permission:'vehicles.manage' },
-  { label:'Inventory', to:'/inventory', icon:CubeIcon, permission:'inventory.manage' },
-  { label:'Payments',  to:'/payments',  icon:CreditCardIcon, permission:'payments.manage' },
-  { label:'Gallery',   to:'/gallery',   icon:PhotoIcon, permission:'gallery.manage' },
-  { label:'Social',    to:'/social-media', icon:MegaphoneIcon, permission:'social_media.view' },
-  { label:'Feedback',  to:'/feedback',  icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
-  { label:'Settings',  to:'/settings',  icon:CogIcon, permission:'settings.manage' },
-].filter(item => auth.hasPermission(item.permission)))
+  { label:'Vehicles',  to:'/vehicles',     icon:TruckIcon,          permission:'vehicles.manage' },
+  { label:'Inventory', to:'/inventory',    icon:CubeIcon,           permission:'inventory.manage' },
+  { label:'Products',  to:'/products',     icon:ShoppingBagIcon,    permission:'inventory.manage' },
+  { label:'Orders',    to:'/orders',       icon:ArchiveBoxIcon,     permission:'inventory.manage' },
+  { label:'Payments',  to:'/payments',     icon:CreditCardIcon,     permission:'payments.manage' },
+  { label:'Media',     to:'/gallery',      icon:PhotoIcon,          permission:'gallery.manage' },
+  { label:'Social',    to:'/social-media', icon:MegaphoneIcon,      permission:'social_media.view' },
+  { label:'Feedback',  to:'/feedback',     icon:ChatBubbleLeftIcon, permission:'feedback.manage' },
+  { label:'Settings',  to:'/settings',     icon:CogIcon,            permission:SETTINGS_PERMS },
+].filter(item => canSee(item.permission)))
 
 const showQuickBooking = computed(() => auth.hasPermission('bookings.manage'))
 

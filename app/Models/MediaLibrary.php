@@ -11,29 +11,22 @@ class MediaLibrary extends Model
     protected $table = 'media_library';
 
     protected $fillable = [
-        'name',
-        'url',
-        'cloudinary_public_id',
-        'mime_type',
-        'type',
-        'size',
-        'width',
-        'height',
-        'duration',
-        'tags',
-        'used_count',
-        'last_used_at',
-        'created_by',
+        'name', 'url', 'cloudinary_public_id', 'mime_type', 'type',
+        'size', 'width', 'height', 'duration', 'tags',
+        'used_count', 'last_used_at', 'created_by',
+        'is_published', 'alt_text', 'description', 'service_id', 'sort_order',
     ];
 
     protected $casts = [
-        'tags'        => 'array',
-        'last_used_at'=> 'datetime',
-        'size'        => 'integer',
-        'width'       => 'integer',
-        'height'      => 'integer',
-        'duration'    => 'integer',
-        'used_count'  => 'integer',
+        'tags'         => 'array',
+        'last_used_at' => 'datetime',
+        'is_published' => 'boolean',
+        'size'         => 'integer',
+        'width'        => 'integer',
+        'height'       => 'integer',
+        'duration'     => 'integer',
+        'used_count'   => 'integer',
+        'sort_order'   => 'integer',
     ];
 
     protected $appends = ['size_formatted', 'type_label'];

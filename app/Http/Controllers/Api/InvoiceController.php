@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\{Booking, BookingStatus, Customer, InventoryItem, InventoryMovement, Invoice, InvoiceItem, Vehicle};
+use App\Models\Product;
+use App\Models\ProductMovement;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\DB;
@@ -90,9 +92,10 @@ class InvoiceController extends Controller
             'items.*.description'     => 'required|string',
             'items.*.quantity'        => 'required|integer|min:1',
             'items.*.unit_price'      => 'required|numeric|min:0',
-            'items.*.line_type'       => 'nullable|in:service,inventory,custom,deposit',
+            'items.*.line_type'       => 'nullable|in:service,inventory,custom,deposit,product',
             'items.*.service_id'      => 'nullable|exists:services,id',
             'items.*.inventory_item_id' => 'nullable|exists:inventory_items,id',
+            'items.*.product_id'      => 'nullable|exists:products,id',
             'payment_method'          => 'required|in:cash,mpesa,card,bank_transfer,other',
             'mpesa_reference'         => 'nullable|string',
             'card_reference'          => 'nullable|string',
@@ -153,7 +156,8 @@ class InvoiceController extends Controller
 
             foreach ($request->items as $item) {
                 $inventoryItemId = $item['inventory_item_id'] ?? null;
-                $lineType = $item['line_type'] ?? ($inventoryItemId ? 'inventory' : (($item['service_id'] ?? null) ? 'service' : 'custom'));
+                $productId       = $item['product_id'] ?? null;
+                $lineType = $item['line_type'] ?? ($inventoryItemId ? 'inventory' : ($productId ? 'product' : (($item['service_id'] ?? null) ? 'service' : 'custom')));
 
                 InvoiceItem::create([
                     'invoice_id'  => $invoice->id,
@@ -164,7 +168,7 @@ class InvoiceController extends Controller
                     'quantity'    => $item['quantity'],
                     'unit_price'  => $item['unit_price'],
                     'total'       => $item['quantity'] * $item['unit_price'],
-                    'meta'        => $item['meta'] ?? null,
+                    'meta'        => $productId ? array_merge((array)($item['meta'] ?? []), ['product_id' => $productId]) : ($item['meta'] ?? null),
                 ]);
 
                 if ($inventoryItemId) {
@@ -186,6 +190,32 @@ class InvoiceController extends Controller
                         'balance_after'     => $inventoryItem->fresh()->stock_qty,
                         'reference'         => $invoice->invoice_number,
                         'notes'             => 'Sold via POS/invoice checkout',
+                    ]);
+                }
+
+                if ($productId) {
+                    $product = Product::lockForUpdate()->findOrFail($productId);
+
+                    if ($product->stock_qty < $item['quantity']) {
+                        throw ValidationException::withMessages([
+                            'items' => "Insufficient stock for {$product->name}. Only {$product->stock_qty} available.",
+                        ]);
+                    }
+
+                    $newQty = $product->stock_qty - (int) $item['quantity'];
+                    $product->update([
+                        'stock_qty'   => $newQty,
+                        'is_sold_out' => $newQty <= 0,
+                    ]);
+
+                    ProductMovement::create([
+                        'product_id'    => $product->id,
+                        'user_id'       => $request->user()->id,
+                        'type'          => 'stock_out',
+                        'source_ref'    => $invoice->invoice_number,
+                        'quantity'      => -((int) $item['quantity']),
+                        'balance_after' => $newQty,
+                        'notes'         => 'Sold via POS/invoice checkout',
                     ]);
                 }
             }

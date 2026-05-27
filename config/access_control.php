@@ -47,13 +47,12 @@ return [
 
     'role_permissions' => [
         'super_admin' => ['*'],
+        // Admin: operational management — no system settings, no user admin, no workshop floor work
         'admin' => [
             'dashboard.view',
             'bookings.manage',
             'customers.manage',
             'vehicles.manage',
-            'job_cards.manage',
-            'checklists.manage',
             'pos.manage',
             'payments.manage',
             'inventory.manage',
@@ -64,25 +63,21 @@ return [
             'feedback.manage',
             'gallery.manage',
             'social_media.view',
-            'social_media.accounts.manage',
-            'social_media.inbox.manage',
             'social_media.posts.manage',
             'social_media.engagement.manage',
             'profile.manage',
         ],
+        // Receptionist: front-desk only — bookings, customers, POS, inbox
         'receptionist' => [
             'dashboard.view',
             'bookings.manage',
             'customers.manage',
             'vehicles.manage',
-            'checklists.manage',
             'pos.manage',
             'payments.manage',
             'feedback.manage',
             'social_media.view',
             'social_media.inbox.manage',
-            'social_media.posts.manage',
-            'social_media.engagement.manage',
             'profile.manage',
         ],
     ],

@@ -5,6 +5,7 @@ use App\Http\Controllers\Controller;
 use App\Models\LoginChallenge;
 use App\Models\User;
 use App\Notifications\AdminPasswordResetNotification;
+use App\Notifications\EmailOtpNotification;
 use App\Notifications\TwoFactorRecoveryCodeNotification;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -189,6 +190,83 @@ class AuthController extends Controller
         return response()->json(['message' => 'Password reset successful. You can now sign in.']);
     }
 
+    /**
+     * POST /admin/2fa/email-otp/request
+     * Sends a 6-digit OTP to the user's email as an alternative to the authenticator app.
+     * Only valid when the challenge is in 'challenge' mode (i.e. 2FA already set up).
+     */
+    public function requestEmailOtp(Request $request)
+    {
+        $request->validate(['challenge_token' => 'required|string']);
+
+        $challenge = LoginChallenge::query()
+            ->valid()
+            ->with('user')
+            ->where('token_hash', hash('sha256', $request->string('challenge_token')))
+            ->where('mode', 'challenge')
+            ->latest()
+            ->first();
+
+        if (! $challenge) {
+            return response()->json(['message' => 'This login session has expired or is not eligible for email OTP.'], 422);
+        }
+
+        $code = (string) random_int(100000, 999999);
+
+        $challenge->update([
+            'verification_code_hash' => hash('sha256', $code),
+            'mode' => 'email_otp',
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $challenge->user->notify(new EmailOtpNotification($code));
+
+        $email = $challenge->user->email;
+        $masked = substr($email, 0, 3) . str_repeat('*', max(0, strpos($email, '@') - 3)) . substr($email, strpos($email, '@'));
+
+        return response()->json([
+            'message' => 'A sign-in code has been sent to your email.',
+            'email_hint' => $masked,
+        ]);
+    }
+
+    /**
+     * POST /admin/2fa/email-otp/verify
+     * Completes login by verifying the email OTP.
+     */
+    public function verifyEmailOtp(Request $request)
+    {
+        $request->validate([
+            'challenge_token' => 'required|string',
+            'code'            => 'required|string|size:6',
+        ]);
+
+        $challenge = LoginChallenge::query()
+            ->valid()
+            ->with('user.roles.permissions', 'user.directPermissions')
+            ->where('token_hash', hash('sha256', $request->string('challenge_token')))
+            ->where('mode', 'email_otp')
+            ->latest()
+            ->first();
+
+        if (! $challenge || ! hash_equals($challenge->verification_code_hash ?? '', hash('sha256', $request->code))) {
+            return response()->json(['message' => 'The sign-in code is invalid or has expired.'], 422);
+        }
+
+        $user = $challenge->user;
+
+        LoginChallenge::query()->where('user_id', $user->id)->delete();
+
+        $user->update(['last_login_at' => now()]);
+
+        $token = $user->createToken('admin-spa', ['*'], now()->addHours(8))->plainTextToken;
+
+        return response()->json([
+            'token' => $token,
+            'user'  => $this->userPayload($user),
+        ]);
+    }
+
     public function requestTwoFactorRecovery(Request $request)
     {
         $request->validate([
@@ -293,7 +371,13 @@ class AuthController extends Controller
 
     private function userPayload(User $user): array
     {
-        $permissions = $user->effectivePermissions();
+        $allPermissions = $user->effectivePermissions();
+
+        // Only directly-granted permissions drive section visibility for non-super_admin.
+        // Super admins retain all effective permissions so they always see everything.
+        $visibilityPermissions = $user->hasRole('super_admin')
+            ? $allPermissions
+            : $user->directPermissions;
 
         return [
             'id' => $user->id,
@@ -305,13 +389,13 @@ class AuthController extends Controller
                 'name' => $role->name,
                 'slug' => $role->slug,
             ])->values(),
-            'permissions' => $permissions->map(fn ($permission) => [
+            'permissions' => $allPermissions->map(fn ($permission) => [
                 'id' => $permission->id,
                 'name' => $permission->name,
                 'slug' => $permission->slug,
                 'group_name' => $permission->group_name,
             ])->values(),
-            'permission_slugs' => $permissions->pluck('slug')->values(),
+            'permission_slugs' => $visibilityPermissions->pluck('slug')->values(),
             'initials' => $user->initials,
             'avatar' => $user->avatar_url ?? null,
             'two_factor_enabled' => $user->two_factor_enabled,

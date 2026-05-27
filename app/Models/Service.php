@@ -17,6 +17,10 @@ class Service extends Model
         'name',
         'slug',
         'description',
+        'long_description',
+        'features',
+        'process',
+        'image',
         'icon',
         'price_from',
         'price_to',
@@ -34,6 +38,8 @@ class Service extends Model
         'requires_deposit'  => 'boolean',
         'is_popular'        => 'boolean',
         'is_active'         => 'boolean',
+        'features'          => 'array',
+        'process'           => 'array',
     ];
 
     // ── Relationships ─────────────────────────────────────────────────────
