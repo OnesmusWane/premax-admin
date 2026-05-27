@@ -393,7 +393,7 @@ const movements      = ref([])
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function blankForm() {
-  return { name:'', category:'', description:'', long_description:'', price:null, sale_price:null, stock_qty:0, reorder_level:5, is_featured:false, is_active:true, image:null, features:[], gallery:[] }
+  return { name:'', category:'', description:'', long_description:'', price:null, sale_price:null, stock_qty:0, reorder_level:5, sort_order:null, is_featured:false, is_active:true, image:null, features:[], gallery:[] }
 }
 
 const categoryLabel = v => categories.find(c => c.value === v)?.label ?? v
@@ -453,7 +453,7 @@ function openEdit(p) {
     name: p.name, category: p.category,
     description: p.description ?? '', long_description: p.long_description ?? '',
     price: p.price, sale_price: p.sale_price ?? null,
-    stock_qty: p.stock_qty, reorder_level: p.reorder_level ?? 5,
+    stock_qty: p.stock_qty, reorder_level: p.reorder_level ?? 5, sort_order: p.sort_order ?? null,
     is_featured: p.is_featured, is_active: p.is_active,
     image: p.image ?? null,
     features: Array.isArray(p.features) ? [...p.features] : [],
@@ -509,7 +509,7 @@ async function save() {
   try {
     const fd = new FormData()
     const fields = ['name','category','description','long_description','price','sale_price','stock_qty','reorder_level','sort_order']
-    fields.forEach(f => { const v = form.value[f]; if (v !== null && v !== '' && !Number.isNaN(v)) fd.append(f, v) })
+    fields.forEach(f => { const v = form.value[f]; if (v != null && v !== '' && !Number.isNaN(v)) fd.append(f, v) })
     fd.append('is_featured', form.value.is_featured ? '1' : '0')
     fd.append('is_active',   form.value.is_active   ? '1' : '0')
     form.value.features.forEach((f, i) => fd.append(`features[${i}]`, f))
